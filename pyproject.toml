@@ -1,0 +1,20 @@
+[project]
+name = "lgraph"
+version = "0.1.0"
+description = "Research AI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "langgraph>=1.2.11",
+    "pydantic>=2.13.5",
+    "uvicorn>=0.52.4",
+]
+
+[project.scripts]
+lgraph = "lgraph.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

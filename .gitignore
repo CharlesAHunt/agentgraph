@@ -1,0 +1,34 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+
+# Secrets and local environment
+# app.py reads OPENROUTER_API_KEY from the environment; keep it out of the repo.
+.env
+.env.*
+!.env.example
+
+# Test and type-checker caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

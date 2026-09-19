@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:openrouter.ai)",
+      "Bash(echo \"--- exit: $?\")",
+      "Bash(timeout 12 uv run lgraph)",
+      "Bash(timeout 12 ~/.local/bin/uv run lgraph)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
