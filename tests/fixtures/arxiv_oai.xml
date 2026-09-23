@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-09-20T05:54:30Z</responseDate>
+                <request verb="ListRecords" metadataPrefix="arXiv" from="2026-01-05" until="2026-01-05" set="physics:physics:plasm-ph">http://oaipmh.arxiv.org/oai</request>
+
+
+    <ListRecords>
+                    <record>
+                <header>
+        <identifier>oai:arXiv.org:2504.11237</identifier>
+        <datestamp>2026-01-05</datestamp>
+            <setSpec>physics:physics:atom-ph</setSpec>
+            <setSpec>physics:physics:optics</setSpec>
+            <setSpec>physics:physics:plasm-ph</setSpec>
+            <setSpec>physics:quant-ph</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2504.11237</id>
+        <created>2025-04-15</created>
+            <updated>2026-01-05</updated>
+        <authors>
+                <author>
+                    <keyname>Lyu</keyname>
+                        <forenames>Chunhai</forenames>
+                </author>
+                <author>
+                    <keyname>Keitel</keyname>
+                        <forenames>Christoph H.</forenames>
+                </author>
+                <author>
+                    <keyname>Harman</keyname>
+                        <forenames>Zoltán</forenames>
+                </author>
+        </authors>
+        <title>Periodic table for highly charged ions</title>
+            <categories>physics.atom-ph physics.optics physics.plasm-ph quant-ph</categories>
+            <comments>5 pages</comments>
+            <journal-ref>Phys. Rev. Research 7, L042071 (2025)</journal-ref>
+            <doi>10.1103/bppp-53g1</doi>
+            <license>http://creativecommons.org/publicdomain/zero/1.0/</license>
+            <abstract>Mendeleev&#39;s periodic table successfully groups atomic elements according to their chemical and spectroscopic properties. However, it becomes less sufficient in describing the electronic properties of highly charged ions (HCIs) in which many of the outermost electrons are ionized. In this work, we put forward a periodic table particularly suitable for HCIs. It is constructed purely based on the successive electron occupation of relativistic orbitals. While providing a much-simplified description of the level structure of highly charged isoelectronic ions -- essential for laboratory and astrophysical plasma spectroscopies, such a periodic table predicts a large family of highly forbidden transitions suitable for the development of next-generation optical atomic clocks. Furthermore, we also identify universal linear $Z$ scaling laws ($Z$ is the nuclear charge) in the so-called ``Coulomb splittings&#39;&#39; between angular momentum multiplets along isoelectronic sequences, complementing the physics of electron-electron interactions in multielectron atomic systems.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record><record>
+                <header>
+        <identifier>oai:arXiv.org:2508.21012</identifier>
+        <datestamp>2026-01-05</datestamp>
+            <setSpec>physics:physics:comp-ph</setSpec>
+            <setSpec>physics:cond-mat:soft</setSpec>
+            <setSpec>physics:cond-mat:stat-mech</setSpec>
+            <setSpec>physics:nlin:CD</setSpec>
+            <setSpec>physics:physics:plasm-ph</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2508.21012</id>
+        <created>2025-12-16</created>
+            <updated>2026-01-05</updated>
+        <authors>
+                <author>
+                    <keyname>Ivarsen</keyname>
+                        <forenames>Magnus F</forenames>
+                </author>
+        </authors>
+        <title>Kinetic Turing Instability and Emergent Spectral Scaling in Chiral Active Turbulence</title>
+            <categories>physics.comp-ph cond-mat.soft cond-mat.stat-mech nlin.CD physics.plasm-ph</categories>
+            <comments>8 pages, 6 figures</comments>
+            <license>http://creativecommons.org/licenses/by-nc-sa/4.0/</license>
+            <abstract>The spontaneous emergence of coherent structures from chaotic backgrounds is a hallmark of active biological swarms. We investigate this self-organization by simulating an ensemble of polar chiral active agents that couple locally via a Kuramoto interaction. We demonstrate that the system&#39;s transition from chaos to active turbulence is characterized by quantized loop phase currents and coherent clustering, and that this transition is strictly governed by a kinetic Turing instability. By deriving the continuum kinetic theory for the model, we identify that the competition between local phase-locking and active agent motility selects a critical structural wavenumber. The instability then drives the system into a state of developed, active turbulence that exhibits stable, robust power-laws in spectral density, suggestive of universality and consistent with observations from a broad range of turbulent phenomena. Our results bridge the gap between discrete chimera states and continuous fluid turbulence, suggesting that the statistical scaling laws of active turbulence can arise from fundamental kinetic instability criteria.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record><record>
+                <header>
+        <identifier>oai:arXiv.org:2510.07502</identifier>
+        <datestamp>2026-01-05</datestamp>
+            <setSpec>physics:physics:plasm-ph</setSpec>
+            <setSpec>physics:physics:space-ph</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2510.07502</id>
+        <created>2025-12-31</created>
+            <updated>2026-01-05</updated>
+        <authors>
+                <author>
+                    <keyname>Khan</keyname>
+                        <forenames>M. B.</forenames>
+                </author>
+                <author>
+                    <keyname>Shay</keyname>
+                        <forenames>M. A.</forenames>
+                </author>
+                <author>
+                    <keyname>Oughton</keyname>
+                        <forenames>S.</forenames>
+                </author>
+                <author>
+                    <keyname>Matthaeus</keyname>
+                        <forenames>W. H.</forenames>
+                </author>
+                <author>
+                    <keyname>Haggerty</keyname>
+                        <forenames>C. C.</forenames>
+                </author>
+                <author>
+                    <keyname>Adhikari</keyname>
+                        <forenames>S.</forenames>
+                </author>
+                <author>
+                    <keyname>Cassak</keyname>
+                        <forenames>P. A.</forenames>
+                </author>
+                <author>
+                    <keyname>Fordin</keyname>
+                        <forenames>S.</forenames>
+                </author>
+                <author>
+                    <keyname>O&#39;Donnell</keyname>
+                        <forenames>D.</forenames>
+                </author>
+                <author>
+                    <keyname>Yang</keyname>
+                        <forenames>Y.</forenames>
+                </author>
+                <author>
+                    <keyname>Bandyopadhyay</keyname>
+                        <forenames>R.</forenames>
+                </author>
+                <author>
+                    <keyname>Roy</keyname>
+                        <forenames>S.</forenames>
+                </author>
+        </authors>
+        <title>Factors Controlling the Statistics of Magnetic Reconnection in MHD Turbulence</title>
+            <categories>physics.plasm-ph physics.space-ph</categories>
+            <comments>Accepted in Physical Review E</comments>
+            <doi>10.1103/yjh7-hy2s</doi>
+            <license>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</license>
+            <abstract>We study the statistics of dynamical quantities associated with magnetic reconnection events embedded in a sea of strong background magnetohydrodynamic (MHD) turbulence using direct numerical simulations. We focus on the relationship of the reconnection properties to the statistics of global turbulent fields. For the first time, we show that the distribution in turbulence of reconnection rates (determined by upstream fields) is strongly correlated with the magnitude of the global turbulent magnetic field at the correlation scale. The average reconnection rates, and associated dissipation rates, during turbulence are thus much larger than predicted by using turbulent magnetic field fluctuation amplitudes at the dissipation or kinetic scales. Magnetic reconnection may therefore be playing a major role in energy dissipation in astrophysical and heliospheric turbulence.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </ListRecords>
+</OAI-PMH>

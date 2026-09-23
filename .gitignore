@@ -32,3 +32,9 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# Local corpus (LanceDB store, downloaded PDFs, discovery lists)
+data/
+
+# Run logs
+*.log

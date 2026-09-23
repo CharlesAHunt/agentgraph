@@ -1,0 +1,36 @@
+{
+  "pages": [
+    {"page_idx": 0, "blocks": [
+      {"type": "doc_title", "level": 1, "content": "Attention Is All You Need"},
+      {"type": "text", "content": "Ashish Vaswani, Noam Shazeer, Niki Parmar"},
+      {"type": "paragraph_title", "level": 2, "content": "Abstract"},
+      {"type": "text", "content": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder."},
+      {"type": "paragraph_title", "level": 2, "content": "1 Introduction"},
+      {"type": "text", "content": "Recurrent neural networks, long short-term memory and gated recurrent neural networks in particular, have been firmly established as state of the art approaches in sequence modeling."},
+      {"type": "page_number", "content": "1"}
+    ]},
+    {"page_idx": 1, "blocks": [
+      {"type": "text", "content": "In this work we propose the Transformer, a model architecture eschewing recurrence and instead relying entirely on an attention mechanism to draw global dependencies between input and output."}
+    ]},
+    {"page_idx": 2, "blocks": [
+      {"type": "image", "content": "Encoder Decoder", "captions": [{"content": "Figure 1: The Transformer - model architecture."}], "footnotes": []},
+      {"type": "paragraph_title", "level": 2, "content": "3.2 Attention"},
+      {"type": "text", "content": "An attention function can be described as mapping a query and a set of key-value pairs to an output, where the query, keys, values, and output are all vectors."}
+    ]},
+    {"page_idx": 3, "blocks": [
+      {"type": "equation", "content": "$$\\mathrm{Attention}(Q, K, V) = \\mathrm{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$"},
+      {"type": "text", "content": "Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions."}
+    ]},
+    {"page_idx": 5, "blocks": [
+      {"type": "table", "content": "| Layer Type | Complexity per Layer |\n| --- | --- |\n| Self-Attention | O(n^2 d) |",
+       "captions": [{"content": "Table 1: Maximum path lengths, per-layer complexity and minimum number of sequential operations for different layer types."}], "footnotes": []}
+    ]},
+    {"page_idx": 9, "blocks": [
+      {"type": "paragraph_title", "level": 2, "content": "Acknowledgements"},
+      {"type": "text", "content": "We are grateful to Nal Kalchbrenner and Stephan Gouws for their fruitful comments."},
+      {"type": "paragraph_title", "level": 2, "content": "References"},
+      {"type": "text", "content": "[1] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization. arXiv preprint arXiv:1607.06450, 2016."}
+    ]}
+  ],
+  "metadata": {}, "is_full_document": true
+}
