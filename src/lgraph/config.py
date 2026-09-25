@@ -87,6 +87,10 @@ class Settings:
         return self.data_dir / "pdfs"
 
     @property
+    def results_dir(self) -> Path:
+        return self.data_dir / "results"
+
+    @property
     def retrieval_enabled(self) -> bool:
         """Whether the agent gets the retrieval tools."""
         if self.rag_enabled is not None:

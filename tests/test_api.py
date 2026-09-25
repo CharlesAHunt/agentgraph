@@ -281,3 +281,30 @@ def test_malformed_messages_are_422_not_500(settings: Settings, bad: list) -> No
         r = c.post("/chat", json={"messages": bad})
     assert r.status_code == 422
     assert "Invalid message list" in r.json()["detail"]
+
+
+# --- /results static files ---------------------------------------------------
+
+
+def test_results_endpoint_serves_html_file(tmp_path: Path) -> None:
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "report.html").write_text("<h1>Report</h1>")
+    settings = Settings(api_key="k", model="test/model", data_dir=tmp_path)
+    with _client(settings, fake_model()) as c:
+        r = c.get("/results/report.html")
+    assert r.status_code == 200
+    assert "<h1>Report</h1>" in r.text
+
+
+def test_results_endpoint_404_for_missing_file(tmp_path: Path) -> None:
+    settings = Settings(api_key="k", model="test/model", data_dir=tmp_path)
+    with _client(settings, fake_model()) as c:
+        r = c.get("/results/missing.html")
+    assert r.status_code == 404
+
+
+def test_results_endpoint_creates_directory_when_absent(tmp_path: Path) -> None:
+    settings = Settings(api_key="k", model="test/model", data_dir=tmp_path)
+    with _client(settings, fake_model()):
+        pass
+    assert (tmp_path / "results").is_dir()

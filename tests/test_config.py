@@ -102,6 +102,7 @@ def test_rag_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert s.data_dir == Path("data")
     assert s.lancedb_dir == Path("data") / "lancedb"
     assert s.pdf_dir == Path("data") / "pdfs"
+    assert s.results_dir == Path("data") / "results"
     assert s.embedding_model == DEFAULT_EMBEDDING_MODEL
     assert s.embedding_dimensions == 1536
     assert s.retrieval_k == 6

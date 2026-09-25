@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, ToolMessage
@@ -165,4 +166,8 @@ def create_app(
         )
 
     app.include_router(router)
+
+    resolved.results_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/results", StaticFiles(directory=str(resolved.results_dir), html=True), name="results")
+
     return app

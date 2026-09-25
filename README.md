@@ -73,7 +73,7 @@ precedence). `.env` is gitignored.
 | `LGRAPH_MAX_RETRIES` | `2` | Upstream retries; `0` disables |
 | `LGRAPH_SYSTEM_PROMPT` | unset | System prompt. When unset and retrieval is on, a citation-oriented default is used |
 | `LGRAPH_HOST` / `LGRAPH_PORT` | `127.0.0.1` / `8000` | Bind address. Use `0.0.0.0` to reach the server from other machines |
-| `LGRAPH_DATA_DIR` | `./data` | Corpus location: LanceDB at `data/lancedb`, PDFs at `data/pdfs` |
+| `LGRAPH_DATA_DIR` | `./data` | Corpus location: LanceDB at `data/lancedb`, PDFs at `data/pdfs`, static reports at `data/results` |
 | `LGRAPH_RAG_ENABLED` | auto | `true`/`false`. Auto means on when `data/lancedb` exists |
 | `OPENROUTER_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Embedding model slug |
 | `OPENROUTER_EMBEDDING_DIMENSIONS` | `1536` | Must match the model; checked against an existing store |
@@ -232,6 +232,13 @@ ingested, copy `data/lancedb` (and optionally `data/pdfs`) over.
 
 ## Use
 
+Any `.html` file dropped into `data/results` is served as-is under `/results`
+(e.g. `data/results/summary.html` -> `GET /results/summary.html`); the
+directory is created automatically if it doesn't exist. `GET /results/` shows
+`index.html` when one is present. This is unauthenticated, like every other
+route here, so don't put anything sensitive there if the server is reachable
+beyond localhost.
+
 ```bash
 curl -s localhost:8000/health
 curl -s localhost:8000/papers
@@ -289,7 +296,7 @@ src/lgraph/
   prompts.py        default citation-oriented system prompt
   messages.py       wire dict <-> LangChain message conversion
   errors.py         UpstreamError and exception -> status translation
-  api.py            FastAPI app: /health, /papers, /chat
+  api.py            FastAPI app: /health, /papers, /chat, /results (static)
   __main__.py       CLI: serve (default), discover, ingest, papers
   rag/
     documents.py    Paper, Chunk, Hit, Source
