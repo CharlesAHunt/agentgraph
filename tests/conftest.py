@@ -106,8 +106,9 @@ class StreamingFakeChatModel(RecordingFakeChatModel):
         reply = self._generate(messages, stop=stop, **kwargs).generations[0].message
         assert isinstance(reply, AIMessage)
         chunks: list[AIMessageChunk] = []
-        if reasoning := reply.additional_kwargs.get("reasoning_content"):
-            chunks.append(AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
+        for key in ("reasoning_content", "reasoning_details"):
+            if value := reply.additional_kwargs.get(key):
+                chunks.append(AIMessageChunk(content="", additional_kwargs={key: value}))
         if isinstance(reply.content, str) and reply.content:
             chunks += [AIMessageChunk(content=t) for t in re.split(r"(\s)", reply.content) if t]
         for i, call in enumerate(reply.tool_calls):

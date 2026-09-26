@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import ModelPicker from "./ModelPicker.svelte";
+  import { chat } from "./chat.svelte";
 
   let { busy, onsend, onstop }: { busy: boolean; onsend: (q: string) => void; onstop: () => void } = $props();
 
@@ -54,7 +56,10 @@
       <button type="submit" class="send" disabled={!value.trim()}>Ask</button>
     {/if}
   </form>
-  <p class="hint">Enter to send · Shift+Enter for a new line</p>
+  <div class="meta">
+    {#if chat.models.length}<ModelPicker />{/if}
+    <p class="hint">Enter to send · Shift+Enter for a new line</p>
+  </div>
 </div>
 
 <style>
@@ -66,10 +71,18 @@
     pointer-events: none;
   }
   .composer,
-  .hint {
+  .meta {
     max-width: var(--column);
     margin-inline: auto;
     pointer-events: auto;
+  }
+  .meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 6px;
+    min-height: 26px;
   }
   .composer {
     display: flex;
@@ -137,8 +150,7 @@
     background: var(--accent);
   }
   .hint {
-    margin-top: 6px;
-    text-align: center;
+    margin: 0 0 0 auto;
     font-family: var(--font-mono);
     font-size: 0.68rem;
     color: var(--ink-faint);

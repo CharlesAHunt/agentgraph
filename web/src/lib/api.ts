@@ -1,4 +1,25 @@
-import type { CorpusInfo, StreamEvent, WireMessage } from "./types";
+import type { CorpusInfo, ModelInfo, StreamEvent, UsageReport, WireMessage } from "./types";
+
+export async function fetchUsage(): Promise<{ report: UsageReport } | { error: string }> {
+  try {
+    const res = await fetch("/usage");
+    if (!res.ok) return { error: await errorDetail(res) };
+    return { report: await res.json() };
+  } catch {
+    return { error: "Can't reach the lgraph server." };
+  }
+}
+
+export async function fetchModels(): Promise<{ default: string; models: ModelInfo[] } | null> {
+  try {
+    const res = await fetch("/models");
+    if (!res.ok) return null;
+    const body = await res.json();
+    return typeof body.default === "string" && Array.isArray(body.models) ? body : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchCorpus(): Promise<CorpusInfo | null> {
   try {
@@ -17,13 +38,14 @@ export async function fetchCorpus(): Promise<CorpusInfo | null> {
  */
 export async function streamChat(
   messages: WireMessage[],
+  model: string | null,
   onEvent: (e: StreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
   const res = await fetch("/chat/stream", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify(model ? { messages, model } : { messages }),
     signal,
   });
   if (!res.ok || !res.body) throw new Error(await errorDetail(res));
@@ -61,7 +83,7 @@ function parseFrame(frame: string): StreamEvent | null {
 
 async function errorDetail(res: Response): Promise<string> {
   const fallback = res.status === 404
-    ? "The server has no /chat/stream endpoint. Update and restart it with `uv run lgraph`."
+    ? "The server is older than this page. Restart it with `uv run lgraph`."
     : `The server answered ${res.status}.`;
   try {
     const body = await res.json();

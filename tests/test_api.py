@@ -381,6 +381,12 @@ def test_stream_forwards_reasoning_text(settings: Settings) -> None:
     assert [d["text"] for e, d in events if e == "reasoning"] == ["thinking it over"]
 
 
+def test_stream_done_keeps_reasoning_details_for_the_next_turn(settings: Settings) -> None:
+    reply = AIMessage(content="ok", additional_kwargs={"reasoning_details": REASONING})
+    events = _stream(settings, streaming_model(reply), [{"role": "user", "content": "hi"}])
+    assert events[-1][1]["messages"][-1]["reasoning_details"] == REASONING
+
+
 def test_stream_upstream_failure_becomes_error_event(settings: Settings) -> None:
     events = _stream(settings, RaisingChatModel(error=httpx.ReadTimeout("slow")),
                      [{"role": "user", "content": "hi"}])
@@ -402,6 +408,164 @@ def test_stream_rejects_malformed_messages(settings: Settings) -> None:
     with _client(settings, streaming_model()) as c:
         r = c.post("/chat/stream", json={"messages": [{"role": "bogus", "content": "x"}]})
     assert r.status_code == 422
+
+
+# --- model selection ---------------------------------------------------------
+
+
+class FakeCatalog:
+    def __init__(self, *ids: str, error: Exception | None = None) -> None:
+        self.ids, self.error, self.calls = ids, error, 0
+
+    async def __call__(self) -> list[dict]:
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return [{"id": i, "name": i.split("/")[-1], "context_length": 8192,
+                 "prompt_price": 0.5, "completion_price": 1.5} for i in self.ids]
+
+
+def _select_client(settings: Settings, catalog: FakeCatalog, alternates: dict, default=None):
+    built: list[str] = []
+
+    def factory(slug: str):
+        built.append(slug)
+        return alternates[slug]
+
+    app = create_app(settings, model=default or fake_model(), model_factory=factory, model_catalog=catalog)
+    return TestClient(app, raise_server_exceptions=False), built
+
+
+def test_models_lists_catalog_with_default_first(settings: Settings) -> None:
+    client, _ = _select_client(settings, FakeCatalog("z/zeta", "test/model", "a/alpha"), {})
+    with client as c:
+        body = c.get("/models").json()
+    assert body["default"] == "test/model"
+    assert [m["id"] for m in body["models"]] == ["test/model", "a/alpha", "z/zeta"]
+    assert body["models"][1]["prompt_price"] == 0.5
+
+
+def test_models_allowlist_filters_catalog() -> None:
+    settings = Settings(api_key="k", model="test/model", models=("a/alpha", "gone/model"))
+    client, _ = _select_client(settings, FakeCatalog("z/zeta", "a/alpha"), {})
+    with client as c:
+        ids = [m["id"] for m in c.get("/models").json()["models"]]
+    # The default is offered even when the catalog lacks it; unknown allowlist ids are not.
+    assert ids == ["test/model", "a/alpha"]
+
+
+def test_models_falls_back_to_default_when_catalog_unavailable(settings: Settings) -> None:
+    client, _ = _select_client(settings, FakeCatalog(error=httpx.ConnectError("offline")), {})
+    with client as c:
+        body = c.get("/models").json()
+    assert [m["id"] for m in body["models"]] == ["test/model"]
+
+
+def test_catalog_is_cached(settings: Settings) -> None:
+    catalog = FakeCatalog("a/alpha")
+    client, _ = _select_client(settings, catalog, {})
+    with client as c:
+        c.get("/models")
+        c.get("/models")
+    assert catalog.calls == 1
+
+
+def test_chat_answers_with_requested_model_and_reuses_its_agent(settings: Settings) -> None:
+    alpha = fake_model("from alpha", "again from alpha")
+    client, built = _select_client(settings, FakeCatalog("a/alpha"), {"a/alpha": alpha})
+    with client as c:
+        first = c.post("/chat", json={"model": "a/alpha", "messages": [{"role": "user", "content": "hi"}]})
+        second = c.post("/chat", json={"model": "a/alpha", "messages": [{"role": "user", "content": "hi"}]})
+    assert first.json()["messages"][-1]["content"] == "from alpha"
+    assert second.json()["messages"][-1]["content"] == "again from alpha"
+    assert built == ["a/alpha"]
+
+
+def test_chat_rejects_model_not_in_catalog(settings: Settings) -> None:
+    client, built = _select_client(settings, FakeCatalog("a/alpha"), {})
+    with client as c:
+        r = c.post("/chat", json={"model": "evil/model", "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 422
+    assert "Unknown or unsupported model" in r.json()["detail"]
+    assert built == []
+
+
+def test_default_model_needs_no_catalog(settings: Settings) -> None:
+    catalog = FakeCatalog(error=httpx.ConnectError("offline"))
+    client, _ = _select_client(settings, catalog, {}, default=fake_model("default answer"))
+    with client as c:
+        r = c.post("/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+    assert r.json()["messages"][-1]["content"] == "default answer"
+    assert catalog.calls == 0
+
+
+def test_stream_uses_requested_model(settings: Settings) -> None:
+    client, _ = _select_client(settings, FakeCatalog("a/alpha"), {"a/alpha": streaming_model("alpha streams")})
+    with client as c:
+        r = c.post("/chat/stream", json={"model": "a/alpha", "messages": [{"role": "user", "content": "hi"}]})
+    events = _events(r.text)
+    assert "".join(d["text"] for e, d in events if e == "token") == "alpha streams"
+
+
+def test_stream_rejects_unknown_model_before_streaming(settings: Settings) -> None:
+    client, _ = _select_client(settings, FakeCatalog("a/alpha"), {})
+    with client as c:
+        r = c.post("/chat/stream", json={"model": "nope/x", "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 422
+
+
+# --- /usage ------------------------------------------------------------------
+
+KEY_USAGE = {"usage": 12.5, "usage_daily": 0.4, "usage_weekly": 3.1, "usage_monthly": 9.8,
+             "limit": 50.0, "limit_remaining": 37.5, "limit_reset": "monthly", "is_free_tier": False}
+CREDITS = {"total": 100.0, "used": 62.5, "remaining": 37.5}
+
+
+async def _key_usage() -> dict:
+    return KEY_USAGE
+
+
+async def _credits() -> dict:
+    return CREDITS
+
+
+def _usage(settings: Settings, **fetchers) -> httpx.Response:
+    app = create_app(settings, model=fake_model(), **fetchers)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        return c.get("/usage")
+
+
+def test_usage_without_management_key_reports_key_and_explains_balance(settings: Settings) -> None:
+    body = _usage(settings, key_usage_fetch=_key_usage, credits_fetch=_credits).json()
+    assert body["key"] == KEY_USAGE
+    assert body["credits"] is None
+    assert "OPENROUTER_MANAGEMENT_KEY" in body["credits_note"]
+
+
+def test_usage_with_management_key_includes_balance() -> None:
+    settings = Settings(api_key="k", model="test/model", management_key="mgmt")
+    body = _usage(settings, key_usage_fetch=_key_usage, credits_fetch=_credits).json()
+    assert body == {"key": KEY_USAGE, "credits": CREDITS, "credits_note": None}
+
+
+def test_usage_balance_failure_keeps_key_figures() -> None:
+    async def failing() -> dict:
+        raise OpenRouterError("forbidden", raw_response=httpx.Response(403, text="not a management key"))
+
+    settings = Settings(api_key="k", model="test/model", management_key="wrong")
+    r = _usage(settings, key_usage_fetch=_key_usage, credits_fetch=failing)
+    assert r.status_code == 200
+    assert r.json()["key"] == KEY_USAGE and r.json()["credits"] is None
+    assert r.json()["credits_note"]
+
+
+def test_usage_key_failure_is_an_upstream_error(settings: Settings) -> None:
+    async def unauthorized() -> dict:
+        raise OpenRouterError("nope", raw_response=httpx.Response(401, text="bad key"))
+
+    r = _usage(settings, key_usage_fetch=unauthorized)
+    assert r.status_code == 502
+    assert r.json()["upstream_status"] == 401
 
 
 # --- frontend ----------------------------------------------------------------

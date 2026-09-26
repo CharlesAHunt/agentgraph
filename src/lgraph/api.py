@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -22,7 +24,7 @@ from .agent import build_agent
 from .config import Settings, get_settings
 from .errors import UpstreamError, translate
 from .messages import to_langchain, to_wire
-from .model import build_embeddings, build_model
+from .model import account_credits, build_embeddings, build_model, key_usage, list_tool_models
 from .prompts import DEFAULT_RAG_SYSTEM_PROMPT
 from .rag.documents import Source
 from .rag.retriever import Retriever
@@ -47,6 +49,83 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[Message] = Field(min_length=1)
+    # An id from GET /models; omitted means the configured default.
+    model: str | None = Field(default=None, max_length=200)
+
+
+CATALOG_TTL_S = 3600.0
+
+
+class ModelCatalog:
+    """Chat models a request may name: OpenRouter's tool-capable models, cached.
+
+    With an allowlist (``LGRAPH_MODELS``) only those ids are offered. The
+    configured default is always offered, first.
+    """
+
+    def __init__(
+        self,
+        fetch: Callable[[], Awaitable[list[dict[str, Any]]]],
+        *,
+        default: str,
+        allow: Sequence[str] = (),
+    ) -> None:
+        self._fetch = fetch
+        self._default = default
+        self._allow = set(allow)
+        self._cache: list[dict[str, Any]] | None = None
+        self._fetched_at = 0.0
+        self._lock = asyncio.Lock()
+
+    async def models(self) -> list[dict[str, Any]]:
+        async with self._lock:
+            if self._cache is None or time.monotonic() - self._fetched_at > CATALOG_TTL_S:
+                try:
+                    self._cache = self._offer(await self._fetch())
+                    self._fetched_at = time.monotonic()
+                except Exception as exc:  # noqa: BLE001 - any failure degrades to the default model
+                    logger.warning("Could not load the OpenRouter model catalog: %s", exc)
+                    return self._cache or [self._placeholder()]
+            return self._cache
+
+    async def ids(self) -> set[str]:
+        return {m["id"] for m in await self.models()}
+
+    def _offer(self, catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self._allow:
+            missing = self._allow - {m["id"] for m in catalog}
+            if missing:
+                logger.warning("LGRAPH_MODELS ids not offered (unknown, or no tool support): %s",
+                               ", ".join(sorted(missing)))
+            catalog = [m for m in catalog if m["id"] in self._allow or m["id"] == self._default]
+        default = next((m for m in catalog if m["id"] == self._default), None) or self._placeholder()
+        rest = sorted((m for m in catalog if m["id"] != self._default), key=lambda m: m["name"].lower())
+        return [default, *rest]
+
+    def _placeholder(self) -> dict[str, Any]:
+        return {"id": self._default, "name": self._default, "context_length": None,
+                "prompt_price": None, "completion_price": None}
+
+
+class Agents:
+    """One compiled agent per chat model, built on first use."""
+
+    def __init__(self, default: str, build: Callable[[str], Any], catalog: ModelCatalog) -> None:
+        self.default = default
+        self._build = build
+        self._catalog = catalog
+        self._agents: dict[str, Any] = {default: build(default)}
+
+    async def get(self, model: str | None) -> Any:
+        slug = model or self.default
+        if slug not in self._agents:
+            if slug not in await self._catalog.ids():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unknown or unsupported model {slug!r}. GET /models lists the choices.",
+                )
+            self._agents[slug] = self._build(slug)
+        return self._agents[slug]
 
 
 class ChatResponse(BaseModel):
@@ -72,6 +151,40 @@ async def papers(request: Request) -> dict[str, Any]:
     return {"enabled": True, "papers": [p.to_record() for p in papers]}
 
 
+@router.get("/models")
+async def models(request: Request) -> dict[str, Any]:
+    """Chat models a request's ``model`` may name; ``default`` is used when it is omitted."""
+    return {
+        "default": request.app.state.settings.model,
+        "models": await request.app.state.catalog.models(),
+    }
+
+
+NO_MANAGEMENT_KEY = "Set OPENROUTER_MANAGEMENT_KEY to show the account balance."
+CREDITS_UNAVAILABLE = "OpenRouter did not return the account balance; check OPENROUTER_MANAGEMENT_KEY."
+
+
+@router.get("/usage")
+async def usage(request: Request) -> dict[str, Any]:
+    """Spend and limit for the API key, plus the account balance when a management key is set."""
+    state = request.app.state
+    try:
+        key = await state.key_usage()
+    except Exception as exc:
+        upstream = translate(exc)
+        if upstream is None:
+            raise
+        raise upstream from exc
+    if state.credits is None:
+        return {"key": key, "credits": None, "credits_note": NO_MANAGEMENT_KEY}
+    try:
+        credits = await state.credits()
+    except Exception as exc:  # noqa: BLE001 - the key figures are still worth returning
+        logger.warning("Could not load OpenRouter credits: %s", exc)
+        return {"key": key, "credits": None, "credits_note": CREDITS_UNAVAILABLE}
+    return {"key": key, "credits": credits, "credits_note": None}
+
+
 def _parse_history(payload: ChatRequest) -> list[BaseMessage]:
     try:
         return to_langchain([m.model_dump(exclude_unset=True) for m in payload.messages])
@@ -84,8 +197,9 @@ def _parse_history(payload: ChatRequest) -> list[BaseMessage]:
 @router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 async def chat(request: Request, payload: ChatRequest) -> dict[str, Any]:
     history = _parse_history(payload)
+    agent = await request.app.state.agents.get(payload.model)
     try:
-        output_state = await request.app.state.agent.ainvoke({"messages": history})
+        output_state = await agent.ainvoke({"messages": history})
     except Exception as exc:
         upstream = translate(exc)
         if upstream is None:
@@ -109,8 +223,9 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
     (the same ``messages`` and ``sources`` /chat returns) or ``error``.
     """
     history = _parse_history(payload)
+    agent = await request.app.state.agents.get(payload.model)
     return StreamingResponse(
-        stream_turn(request.app.state.agent, history),
+        stream_turn(agent, history),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -225,18 +340,26 @@ def create_app(
     model: BaseChatModel | None = None,
     embeddings: Embeddings | None = None,
     tools: Sequence[BaseTool] | None = None,
+    model_factory: Callable[[str], BaseChatModel] | None = None,
+    model_catalog: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
+    key_usage_fetch: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+    credits_fetch: Callable[[], Awaitable[dict[str, float]]] | None = None,
 ) -> FastAPI:
     """Application factory.
 
     Pass ``settings`` to override the environment. ``model`` and
     ``embeddings`` replace the real provider clients; ``tools`` replaces the
-    retrieval tools entirely. Tests inject fakes through these.
+    retrieval tools entirely. ``model_factory`` builds the chat model for a
+    requested model id and ``model_catalog`` lists the offered models.
+    ``key_usage_fetch`` and ``credits_fetch`` read spend and balance; the
+    balance is only read when a management key is configured. Tests inject
+    fakes through these.
     """
     resolved = settings or get_settings()
+    make_model = model_factory or (lambda slug: build_model(replace(resolved, model=slug)))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        chat_model = model or build_model(resolved)
         store: PaperStore | None = None
         system_prompt = resolved.system_prompt
 
@@ -251,10 +374,23 @@ def create_app(
         else:
             agent_tools = []
 
+        def build(slug: str):
+            chat_model = model if model is not None and slug == resolved.model else make_model(slug)
+            return build_agent(chat_model, tools=agent_tools, system_prompt=system_prompt)
+
+        catalog = ModelCatalog(
+            model_catalog or (lambda: list_tool_models(resolved)),
+            default=resolved.model,
+            allow=resolved.models,
+        )
         app.state.settings = resolved
-        app.state.model = chat_model
         app.state.store = store
-        app.state.agent = build_agent(chat_model, tools=agent_tools, system_prompt=system_prompt)
+        app.state.catalog = catalog
+        app.state.agents = Agents(resolved.model, build, catalog)
+        app.state.key_usage = key_usage_fetch or (lambda: key_usage(resolved))
+        app.state.credits = (
+            (credits_fetch or (lambda: account_credits(resolved))) if resolved.management_key else None
+        )
         yield
 
     app = FastAPI(title="LangGraph OpenRouter Endpoint Server", lifespan=lifespan)

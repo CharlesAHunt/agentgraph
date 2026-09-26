@@ -46,6 +46,8 @@ export type TurnStatus = "streaming" | "done" | "error" | "stopped";
 export interface Turn {
   id: number;
   question: string;
+  /** Model id this turn was sent to. */
+  model: string;
   text: string;
   reasoning: string;
   searches: Search[];
@@ -63,6 +65,31 @@ export type StreamEvent =
   | { event: "tool_end"; data: { id: string; name: string; status: string; sources: Source[] } }
   | { event: "done"; data: { messages: WireMessage[]; sources: Source[] } }
   | { event: "error"; data: { detail: string; status: number; upstream_status: number | null } };
+
+/** A chat model from GET /models. Prices are USD per million tokens; null means variable. */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  context_length: number | null;
+  prompt_price: number | null;
+  completion_price: number | null;
+}
+
+/** GET /usage, all amounts in USD. */
+export interface UsageReport {
+  key: {
+    usage: number;
+    usage_daily: number;
+    usage_weekly: number;
+    usage_monthly: number;
+    limit: number | null;
+    limit_remaining: number | null;
+    limit_reset: string | null;
+    is_free_tier: boolean;
+  };
+  credits: { total: number; used: number; remaining: number } | null;
+  credits_note: string | null;
+}
 
 export interface CorpusInfo {
   enabled: boolean;

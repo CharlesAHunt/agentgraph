@@ -1,17 +1,21 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import Composer from "./lib/Composer.svelte";
+  import Spend from "./lib/Spend.svelte";
   import Turn from "./lib/Turn.svelte";
   import Welcome from "./lib/Welcome.svelte";
-  import { fetchCorpus } from "./lib/api";
+  import { fetchCorpus, fetchModels } from "./lib/api";
   import { chat } from "./lib/chat.svelte";
   import type { CorpusInfo } from "./lib/types";
 
   let corpus = $state<CorpusInfo | null>(null);
   let stickToBottom = true;
+  const finished = $derived(chat.turns.filter((t) => t.status === "done").length);
 
   onMount(async () => {
-    corpus = await fetchCorpus();
+    const [info, models] = await Promise.all([fetchCorpus(), fetchModels()]);
+    corpus = info;
+    if (models) chat.setModels(models);
   });
 
   function onscroll() {
@@ -51,6 +55,7 @@
           {corpus.enabled ? `${corpus.papers.toLocaleString()} papers` : "retrieval off"}
         </span>
       {/if}
+      <Spend refresh={finished} />
       {#if chat.turns.length}
         <button type="button" class="new" onclick={() => chat.reset()}>New chat</button>
       {/if}
@@ -162,7 +167,8 @@
     gap: 56px;
   }
   @media (max-width: 480px) {
-    .tag {
+    .tag,
+    .badge {
       display: none;
     }
   }

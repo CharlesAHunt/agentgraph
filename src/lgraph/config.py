@@ -48,6 +48,12 @@ class Settings:
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S
     max_retries: int = DEFAULT_MAX_RETRIES
     system_prompt: str | None = None
+    # Chat models the web UI may pick, besides `model`. Empty means any
+    # tool-capable model in OpenRouter's catalog.
+    models: tuple[str, ...] = ()
+    # OpenRouter management key, used only to read the account balance.
+    # Kept out of __repr__ like api_key.
+    management_key: str | None = None
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
 
@@ -122,6 +128,8 @@ class Settings:
             ),
             max_retries=_int_from_env("LGRAPH_MAX_RETRIES", DEFAULT_MAX_RETRIES),
             system_prompt=os.environ.get("LGRAPH_SYSTEM_PROMPT") or None,
+            models=tuple(m.strip() for m in os.environ.get("LGRAPH_MODELS", "").split(",") if m.strip()),
+            management_key=os.environ.get("OPENROUTER_MANAGEMENT_KEY") or None,
             host=os.environ.get("LGRAPH_HOST", DEFAULT_HOST),
             port=_int_from_env("LGRAPH_PORT", DEFAULT_PORT),
             data_dir=Path(os.environ.get("LGRAPH_DATA_DIR") or DEFAULT_DATA_DIR),

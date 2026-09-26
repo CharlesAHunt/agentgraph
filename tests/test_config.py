@@ -81,10 +81,27 @@ def test_invalid_timeout_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings.from_env()
 
 
+def test_model_allowlist_is_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("LGRAPH_MODELS", " anthropic/claude-x , openai/gpt-y,, ")
+    assert Settings.from_env().models == ("anthropic/claude-x", "openai/gpt-y")
+    monkeypatch.delenv("LGRAPH_MODELS")
+    assert Settings.from_env().models == ()
+
+
 def test_repr_masks_key() -> None:
-    s = Settings(api_key="super-secret")
+    s = Settings(api_key="super-secret", management_key="mgmt-secret")
     assert "super-secret" not in repr(s)
+    assert "mgmt-secret" not in repr(s)
     assert "***" in repr(s)
+
+
+def test_management_key_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.delenv("OPENROUTER_MANAGEMENT_KEY", raising=False)
+    assert Settings.from_env().management_key is None
+    monkeypatch.setenv("OPENROUTER_MANAGEMENT_KEY", "mgmt")
+    assert Settings.from_env().management_key == "mgmt"
 
 
 def _clear_rag_env(monkeypatch: pytest.MonkeyPatch) -> None:

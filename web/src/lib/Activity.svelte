@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { chat } from "./chat.svelte";
   import type { Turn } from "./types";
 
   let { turn }: { turn: Turn } = $props();
@@ -22,6 +23,7 @@
   <div class="phase" class:live={turn.status === "streaming"}>
     {#if turn.status === "streaming"}<span class="pulse" aria-hidden="true"></span>{/if}
     {label}
+    {#if turn.model}<span class="model" title={turn.model}>· {chat.modelName(turn.model)}</span>{/if}
   </div>
   {#if turn.searches.length}
     <ul class="searches">
@@ -56,6 +58,15 @@
   }
   .phase.live {
     color: var(--accent-strong);
+  }
+  .model {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink-faint);
+    text-transform: none;
+    letter-spacing: 0.02em;
   }
   .pulse {
     width: 8px;

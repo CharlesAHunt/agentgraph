@@ -72,6 +72,8 @@ precedence). `.env` is gitignored.
 | `LGRAPH_REQUEST_TIMEOUT_S` | `120` | Per-request timeout to OpenRouter, in seconds |
 | `LGRAPH_MAX_RETRIES` | `2` | Upstream retries; `0` disables |
 | `LGRAPH_SYSTEM_PROMPT` | unset | System prompt. When unset and retrieval is on, a citation-oriented default is used |
+| `OPENROUTER_MANAGEMENT_KEY` | unset | Optional [management key](https://openrouter.ai/docs/guides/overview/auth/management-api-keys), used only to read the account balance for `/usage` |
+| `LGRAPH_MODELS` | unset | Comma-separated chat models a request may choose besides `OPENROUTER_MODEL`. Unset allows any tool-capable OpenRouter model |
 | `LGRAPH_HOST` / `LGRAPH_PORT` | `127.0.0.1` / `8000` | Bind address. Use `0.0.0.0` to reach the server from other machines |
 | `LGRAPH_DATA_DIR` | `./data` | Corpus location: LanceDB at `data/lancedb`, PDFs at `data/pdfs`, static reports at `data/results` |
 | `LGRAPH_RAG_ENABLED` | auto | `true`/`false`. Auto means on when `data/lancedb` exists |
@@ -277,6 +279,52 @@ through) or `502` (anything else), with body
 fails mid-turn, the tool tells the model the corpus is unavailable and the
 request still succeeds.
 
+### Choosing a model per request
+
+`/chat` and `/chat/stream` accept an optional `"model"` next to
+`"messages"`. Omit it to use `OPENROUTER_MODEL`. `GET /models` lists the
+ids a request may use, with name, context length and price in USD per
+million tokens:
+
+```bash
+curl -s localhost:8000/models | jq '.default, (.models | length)'
+curl -s localhost:8000/chat -H 'content-type: application/json' \
+  -d '{"model": "anthropic/claude-sonnet-4", "messages": [{"role": "user", "content": "..."}]}'
+```
+
+The list is OpenRouter's catalog filtered to models that support tool
+calling, since retrieval runs through tools; it is cached for an hour. Any
+other id is rejected with `422`. Each model's agent is built on first use
+and reused. The service has no authentication, so without `LGRAPH_MODELS`
+anyone who can reach it can run any listed model on your key; set the
+allowlist before exposing it with `LGRAPH_HOST=0.0.0.0`.
+
+Reasoning details are provider-specific. When switching models mid-
+conversation, drop `reasoning_details` from the history you send (the web
+UI does this automatically).
+
+### Spend and balance
+
+`GET /usage` reports what the service's API key has spent (in total, today,
+this week, this month) and its spending limit, all in USD:
+
+```json
+{
+  "key": {"usage": 12.52, "usage_daily": 0.42, "usage_weekly": 3.10, "usage_monthly": 9.80,
+          "limit": 50.0, "limit_remaining": 37.48, "limit_reset": "monthly", "is_free_tier": false},
+  "credits": {"total": 100.0, "used": 62.52, "remaining": 37.48},
+  "credits_note": null
+}
+```
+
+OpenRouter only gives the account balance (`credits`) to a management key,
+so set `OPENROUTER_MANAGEMENT_KEY` to include it; otherwise `credits` is
+`null` and `credits_note` says why. That key can create and delete API keys,
+so it stays on the server and is used for this one read. The web UI shows
+the balance (or the remaining limit, or the spend) in the header, turns it
+red under 10% remaining, and refreshes it after every answer. Like every
+route here, `/usage` is unauthenticated.
+
 ### Streaming
 
 `POST /chat/stream` takes the same body and streams the turn as server-sent
@@ -301,7 +349,9 @@ curl -N localhost:8000/chat/stream -H 'content-type: application/json' \
 A Svelte chat UI lives in `web/`. It streams answers from `/chat/stream`,
 shows each corpus search live, renders the answer as a brief (summary
 callout, key-figure tiles, mermaid diagrams), and turns citations into
-chips that jump to a numbered source list with arXiv/DOI links.
+chips that jump to a numbered source list with arXiv/DOI links. The
+model picker under the composer switches between the models `/models`
+offers; the choice is remembered in the browser.
 
 Build it once and `uv run lgraph` serves it at `/` alongside the API:
 
@@ -342,7 +392,7 @@ src/lgraph/
   prompts.py        default citation-oriented system prompt
   messages.py       wire dict <-> LangChain message conversion
   errors.py         UpstreamError and exception -> status translation
-  api.py            FastAPI app: /health, /papers, /chat, /chat/stream, /results, web UI
+  api.py            FastAPI app: /health, /papers, /models, /usage, /chat, /chat/stream, /results, web UI
   __main__.py       CLI: serve (default), discover, ingest, papers
   rag/
     documents.py    Paper, Chunk, Hit, Source
@@ -358,7 +408,7 @@ src/lgraph/
 web/                Svelte 5 + Vite chat UI (npm run build -> web/dist)
   src/lib/
     api.ts          /chat/stream client (SSE over fetch), /papers
-    chat.svelte.ts  conversation state: turns, searches, history round-trip
+    chat.svelte.ts  conversation state: turns, searches, model choice, history round-trip
     markdown.ts     marked -> DOMPurify -> citation chips, stats and mermaid blocks
     Answer.svelte   the rendered brief; Sources.svelte, Activity.svelte, Composer.svelte
 ```

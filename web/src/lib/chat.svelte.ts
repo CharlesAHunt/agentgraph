@@ -1,5 +1,20 @@
 import { streamChat } from "./api";
-import type { StreamEvent, Turn, WireMessage } from "./types";
+import type { ModelInfo, StreamEvent, Turn, WireMessage } from "./types";
+
+const MODEL_KEY = "lgraph.model";
+
+function storedModel(): string | null {
+  try {
+    return localStorage.getItem(MODEL_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Reasoning blobs are provider-specific (some are signed); never replay them to another model. */
+function withoutReasoning(history: WireMessage[]): WireMessage[] {
+  return history.map(({ reasoning_details: _dropped, ...rest }) => rest);
+}
 
 function describeQuery(name: string, args: Record<string, unknown>): string {
   if (typeof args.query === "string") {
@@ -22,25 +37,54 @@ class Chat {
   /** Full wire history from the last completed turn; resent with each question. */
   history = $state.raw<WireMessage[]>([]);
   busy = $derived(this.turns.at(-1)?.status === "streaming");
+  /** Models the server accepts; empty when it doesn't offer a choice. */
+  models = $state.raw<ModelInfo[]>([]);
+  defaultModel = $state("");
+  /** Selected model id; "" until the model list loads. */
+  model = $state("");
 
   #controller: AbortController | null = null;
   #seq = 0;
 
+  setModels(list: { default: string; models: ModelInfo[] }): void {
+    this.models = list.models;
+    this.defaultModel = list.default;
+    const saved = storedModel();
+    this.model = saved && list.models.some((m) => m.id === saved) ? saved : list.default;
+  }
+
+  selectModel(id: string): void {
+    this.model = id;
+    try {
+      localStorage.setItem(MODEL_KEY, id);
+    } catch {
+      /* storage unavailable; the choice lasts for this page only */
+    }
+  }
+
+  modelName(id: string): string {
+    return this.models.find((m) => m.id === id)?.name ?? id;
+  }
+
   ask(question: string): void {
     const q = question.trim();
     if (!q || this.busy) return;
+    const model = this.model || this.defaultModel;
+    const previous = this.turns.findLast((t) => t.status === "done")?.model;
+    const history = previous && previous !== model ? withoutReasoning(this.history) : this.history;
     this.turns.push({
       id: ++this.#seq,
       question: q,
+      model,
       text: "",
       reasoning: "",
       searches: [],
       sources: [],
       status: "streaming",
-      history: this.history,
+      history,
     });
     const turn = this.turns[this.turns.length - 1];
-    void this.#run(turn, [...this.history, { role: "user", content: q }]);
+    void this.#run(turn, [...history, { role: "user", content: q }]);
   }
 
   stop(): void {
@@ -119,7 +163,7 @@ class Chat {
     };
 
     try {
-      await streamChat(messages, onEvent, controller.signal);
+      await streamChat(messages, turn.model || null, onEvent, controller.signal);
       if (!finished) {
         flush();
         turn.status = "error";
