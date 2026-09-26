@@ -8,7 +8,7 @@ from langchain_openrouter import ChatOpenRouter
 
 import lgraph.model as model_module
 from lgraph.config import Settings
-from lgraph.model import _per_million, account_credits, build_model, key_usage
+from lgraph.model import _per_million, account_credits, build_model, key_usage, list_tool_models
 
 
 def test_build_model_returns_configured_chat_model() -> None:
@@ -82,3 +82,17 @@ async def test_account_credits_uses_the_management_key(monkeypatch: pytest.Monke
     credits = await account_credits(Settings(api_key="k", management_key="mgmt"))
     assert credits == {"total": 100.0, "used": 62.5, "remaining": 37.5}
     assert keys == ["mgmt"]
+
+
+async def test_tool_models_flag_reasoning_support(monkeypatch: pytest.MonkeyPatch) -> None:
+    def entry(model_id: str, params: list[str]) -> SimpleNamespace:
+        return SimpleNamespace(id=model_id, name=model_id, context_length=8192, supported_parameters=params,
+                               pricing=SimpleNamespace(prompt="0.000001", completion="0.000002"))
+
+    async def list_async(**_: object) -> SimpleNamespace:
+        return SimpleNamespace(data=[entry("a/thinks", ["tools", "reasoning"]), entry("b/plain", ["tools"])])
+
+    fake = SimpleNamespace(models=SimpleNamespace(list_async=list_async))
+    monkeypatch.setattr(model_module, "_sdk", lambda s, api_key=None: fake)
+    models = await list_tool_models(Settings(api_key="k"))
+    assert {m["id"]: m["reasoning"] for m in models} == {"a/thinks": True, "b/plain": False}

@@ -48,6 +48,10 @@ export interface Turn {
   question: string;
   /** Model id this turn was sent to. */
   model: string;
+  /** Role this turn was asked in, as sent to the server. */
+  role: { name: string; instructions: string };
+  /** Reasoning effort sent with this turn; null means the server default. */
+  effort: string | null;
   text: string;
   reasoning: string;
   searches: Search[];
@@ -73,6 +77,8 @@ export interface ModelInfo {
   context_length: number | null;
   prompt_price: number | null;
   completion_price: number | null;
+  /** Whether the model accepts a reasoning effort. */
+  reasoning: boolean;
 }
 
 /** GET /usage, all amounts in USD. */

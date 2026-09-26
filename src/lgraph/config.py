@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal, get_args
 
 DOTENV_PATH = Path(".env")
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -29,7 +30,8 @@ DEFAULT_MINERU_TIER = "flash"
 DEFAULT_WEB_DIR = Path("web/dist")
 
 # OpenRouter's unified reasoning levels. "none" turns reasoning off.
-REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
+REASONING_EFFORTS = frozenset(get_args(ReasoningEffort))
 MINERU_TIERS = frozenset({"flash", "standard", "advanced"})
 
 

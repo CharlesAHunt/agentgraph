@@ -96,6 +96,47 @@ a {
   color: var(--accent-strong);
 }
 
+/* The compact "LABEL value ▾" buttons under the composer. */
+.chip-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+.chip-trigger:hover:not(:disabled),
+.chip-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+.chip-trigger:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.chip-label {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.chip-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.chip-trigger svg {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.6;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

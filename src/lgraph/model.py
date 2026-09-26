@@ -53,6 +53,8 @@ async def list_tool_models(settings: Settings) -> list[dict[str, Any]]:
             "context_length": m.context_length,
             "prompt_price": _per_million(m.pricing.prompt),
             "completion_price": _per_million(m.pricing.completion),
+            # Whether the model accepts a reasoning effort.
+            "reasoning": "reasoning" in {getattr(p, "value", p) for p in m.supported_parameters},
         }
         for m in body.data
     ]

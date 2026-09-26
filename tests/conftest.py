@@ -43,11 +43,15 @@ class RecordingFakeChatModel(GenericFakeChatModel):
     """Fake model that remembers every prompt it was asked to answer."""
 
     calls: list[list[BaseMessage]] = []
+    # Per-call settings the model was invoked with, e.g. {"reasoning": {...}}.
+    call_kwargs: list[dict[str, Any]] = []
 
-    def bind_tools(self, tools: Any, **kwargs: Any) -> RecordingFakeChatModel:
+    def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
         # create_agent binds tools onto the model; the fake ignores them and
         # replays scripted replies (which may themselves contain tool calls).
-        return self
+        # Per-call settings are kept, as ChatOpenRouter.bind_tools keeps them.
+        kwargs.pop("tool_choice", None)
+        return self.bind(**kwargs) if kwargs else self
 
     def _generate(
         self,
@@ -57,6 +61,7 @@ class RecordingFakeChatModel(GenericFakeChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         self.calls.append(list(messages))
+        self.call_kwargs.append(dict(kwargs))
         return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
 
@@ -86,7 +91,7 @@ class RaisingChatModel(BaseChatModel):
 
 def fake_model(*replies: AIMessage | str) -> RecordingFakeChatModel:
     """Build a recording fake that returns ``replies`` in order."""
-    return RecordingFakeChatModel(messages=iter(replies), calls=[])
+    return RecordingFakeChatModel(messages=iter(replies), calls=[], call_kwargs=[])
 
 
 class StreamingFakeChatModel(RecordingFakeChatModel):
@@ -121,7 +126,7 @@ class StreamingFakeChatModel(RecordingFakeChatModel):
 
 
 def streaming_model(*replies: AIMessage | str) -> StreamingFakeChatModel:
-    return StreamingFakeChatModel(messages=iter(replies), calls=[])
+    return StreamingFakeChatModel(messages=iter(replies), calls=[], call_kwargs=[])
 
 
 

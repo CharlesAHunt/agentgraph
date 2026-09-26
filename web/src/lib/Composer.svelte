@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ModelPicker from "./ModelPicker.svelte";
+  import OptionPicker from "./OptionPicker.svelte";
+  import RolePicker from "./RolePicker.svelte";
+  import { EFFORTS, effortName } from "./efforts";
   import { chat } from "./chat.svelte";
 
   let { busy, onsend, onstop }: { busy: boolean; onsend: (q: string) => void; onstop: () => void } = $props();
@@ -53,12 +56,25 @@
         <span class="square" aria-hidden="true"></span>Stop
       </button>
     {:else}
-      <button type="submit" class="send" disabled={!value.trim()}>Ask</button>
+      <button type="submit" class="send" disabled={!value.trim()} title="Enter to send · Shift+Enter for a new line">Ask</button>
     {/if}
   </form>
   <div class="meta">
-    {#if chat.models.length}<ModelPicker />{/if}
-    <p class="hint">Enter to send · Shift+Enter for a new line</p>
+    <div class="pickers">
+      {#if chat.models.length}<ModelPicker />{/if}
+      <RolePicker />
+      <OptionPicker
+        label="Effort"
+        legend="How hard the model thinks"
+        value={chat.reasons ? chat.effort || chat.defaultEffort : ""}
+        display={chat.reasons ? effortName(chat.effort || chat.defaultEffort) : "n/a"}
+        options={EFFORTS.map((e) => ({ ...e, badge: e.id === chat.defaultEffort ? "default" : undefined }))}
+        onselect={(id) => chat.setEffort(id)}
+        disabled={!chat.reasons}
+        disabledTitle="This model has no reasoning setting"
+        note="Higher effort gives deeper answers but is slower; reasoning is billed as output tokens."
+      />
+    </div>
   </div>
 </div>
 
@@ -83,6 +99,12 @@
     gap: 12px;
     margin-top: 6px;
     min-height: 26px;
+  }
+  .pickers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
   }
   .composer {
     display: flex;
@@ -148,16 +170,5 @@
     width: 9px;
     height: 9px;
     background: var(--accent);
-  }
-  .hint {
-    margin: 0 0 0 auto;
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    color: var(--ink-faint);
-  }
-  @media (max-width: 480px) {
-    .hint {
-      display: none;
-    }
   }
 </style>

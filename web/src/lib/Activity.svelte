@@ -1,5 +1,6 @@
 <script lang="ts">
   import { chat } from "./chat.svelte";
+  import { effortName } from "./efforts";
   import type { Turn } from "./types";
 
   let { turn }: { turn: Turn } = $props();
@@ -24,6 +25,8 @@
     {#if turn.status === "streaming"}<span class="pulse" aria-hidden="true"></span>{/if}
     {label}
     {#if turn.model}<span class="model" title={turn.model}>· {chat.modelName(turn.model)}</span>{/if}
+    {#if turn.role.instructions}<span class="model" title={turn.role.instructions}>· {turn.role.name}</span>{/if}
+    {#if turn.effort && turn.effort !== chat.defaultEffort}<span class="model">· {effortName(turn.effort)} effort</span>{/if}
   </div>
   {#if turn.searches.length}
     <ul class="searches">

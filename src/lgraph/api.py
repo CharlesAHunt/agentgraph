@@ -20,8 +20,8 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Tool
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, ValidationError
 
-from .agent import build_agent
-from .config import Settings, get_settings
+from .agent import TurnContext, build_agent
+from .config import ReasoningEffort, Settings, get_settings
 from .errors import UpstreamError, translate
 from .messages import to_langchain, to_wire
 from .model import account_credits, build_embeddings, build_model, key_usage, list_tool_models
@@ -51,6 +51,13 @@ class ChatRequest(BaseModel):
     messages: list[Message] = Field(min_length=1)
     # An id from GET /models; omitted means the configured default.
     model: str | None = Field(default=None, max_length=200)
+    # A role for the model (tone, depth, emphasis), added after the server's prompt.
+    instructions: str | None = Field(default=None, max_length=1000)
+    # Reasoning effort for this request; omitted means OPENROUTER_REASONING_EFFORT.
+    effort: ReasoningEffort | None = None
+
+    def turn_context(self) -> TurnContext:
+        return TurnContext(instructions=self.instructions, effort=self.effort)
 
 
 CATALOG_TTL_S = 3600.0
@@ -103,8 +110,9 @@ class ModelCatalog:
         return [default, *rest]
 
     def _placeholder(self) -> dict[str, Any]:
+        # Unknown from here; the server already sends an effort to its default model.
         return {"id": self._default, "name": self._default, "context_length": None,
-                "prompt_price": None, "completion_price": None}
+                "prompt_price": None, "completion_price": None, "reasoning": True}
 
 
 class Agents:
@@ -156,6 +164,7 @@ async def models(request: Request) -> dict[str, Any]:
     """Chat models a request's ``model`` may name; ``default`` is used when it is omitted."""
     return {
         "default": request.app.state.settings.model,
+        "default_effort": request.app.state.settings.reasoning_effort,
         "models": await request.app.state.catalog.models(),
     }
 
@@ -185,7 +194,15 @@ async def usage(request: Request) -> dict[str, Any]:
     return {"key": key, "credits": credits, "credits_note": None}
 
 
+SERVER_ROLES = frozenset({"system", "developer"})
+
+
 def _parse_history(payload: ChatRequest) -> list[BaseMessage]:
+    if any(m.role in SERVER_ROLES for m in payload.messages):
+        raise HTTPException(
+            status_code=422,
+            detail="System messages are set by the server; send a role as `instructions` instead.",
+        )
     try:
         return to_langchain([m.model_dump(exclude_unset=True) for m in payload.messages])
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
@@ -199,7 +216,9 @@ async def chat(request: Request, payload: ChatRequest) -> dict[str, Any]:
     history = _parse_history(payload)
     agent = await request.app.state.agents.get(payload.model)
     try:
-        output_state = await agent.ainvoke({"messages": history})
+        output_state = await agent.ainvoke(
+            {"messages": history}, context=payload.turn_context()
+        )
     except Exception as exc:
         upstream = translate(exc)
         if upstream is None:
@@ -225,17 +244,21 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
     history = _parse_history(payload)
     agent = await request.app.state.agents.get(payload.model)
     return StreamingResponse(
-        stream_turn(agent, history),
+        stream_turn(agent, history, payload.turn_context()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-async def stream_turn(agent: Any, history: list[BaseMessage]) -> AsyncIterator[str]:
+async def stream_turn(
+    agent: Any, history: list[BaseMessage], context: TurnContext | None = None
+) -> AsyncIterator[str]:
     final: list[BaseMessage] = history
     try:
         async for mode, data in agent.astream(
-            {"messages": history}, stream_mode=["messages", "updates", "values"]
+            {"messages": history},
+            context=context or TurnContext(),
+            stream_mode=["messages", "updates", "values"],
         ):
             if mode == "messages":
                 chunk, meta = data

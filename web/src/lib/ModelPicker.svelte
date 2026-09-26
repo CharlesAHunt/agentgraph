@@ -1,12 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { chat } from "./chat.svelte";
+  import { dismiss, type DismissReason } from "./dismiss";
   import type { ModelInfo } from "./types";
 
   let open = $state(false);
   let query = $state("");
   let active = $state(0);
-  let root: HTMLDivElement;
   let trigger: HTMLButtonElement;
   let search = $state<HTMLInputElement>();
   let list = $state<HTMLUListElement>();
@@ -73,31 +73,28 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       choose(filtered[active]);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
     }
   }
 
-  function onpointerdown(e: PointerEvent) {
-    if (open && !root.contains(e.target as Node)) open = false;
+  function dismissed(reason: DismissReason) {
+    if (!open) return;
+    if (reason === "escape") close();
+    else open = false;
   }
 </script>
 
-<svelte:window {onpointerdown} />
-
-<div class="picker" bind:this={root}>
+<div class="picker" use:dismiss={dismissed}>
   <button
     type="button"
-    class="trigger"
+    class="chip-trigger"
     bind:this={trigger}
     aria-haspopup="listbox"
     aria-expanded={open}
     title={chat.model}
     onclick={toggle}
   >
-    <span class="label">Model</span>
-    <span class="value">{current ? split(current.name).title : chat.model}</span>
+    <span class="chip-label">Model</span>
+    <span class="chip-value">{current ? split(current.name).title : chat.model}</span>
     <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 7.5 3-3 3 3" /></svg>
   </button>
 
@@ -157,41 +154,6 @@
   .picker {
     position: relative;
     min-width: 0;
-  }
-  .trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    max-width: 100%;
-    padding: 4px 8px;
-    border: 1px solid var(--rule);
-    background: var(--surface);
-    font-size: 0.8rem;
-  }
-  .trigger:hover,
-  .trigger[aria-expanded="true"] {
-    border-color: var(--accent);
-  }
-  .label {
-    font-family: var(--font-mono);
-    font-size: 0.64rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-  }
-  .value {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-  }
-  .trigger svg {
-    flex: none;
-    width: 10px;
-    height: 10px;
-    fill: none;
-    stroke: var(--ink-faint);
-    stroke-width: 1.6;
   }
   .popover {
     position: absolute;

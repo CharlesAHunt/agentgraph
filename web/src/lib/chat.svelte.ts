@@ -1,15 +1,40 @@
 import { streamChat } from "./api";
+import { EFFORTS } from "./efforts";
+import { CUSTOM_ROLE, DEFAULT_ROLE, MAX_ROLE_LENGTH, ROLES } from "./roles";
 import type { ModelInfo, StreamEvent, Turn, WireMessage } from "./types";
 
 const MODEL_KEY = "lgraph.model";
+const ROLE_KEY = "lgraph.role";
+const EFFORT_KEY = "lgraph.effort";
 
-function storedModel(): string | null {
+function load(key: string): string | null {
   try {
-    return localStorage.getItem(MODEL_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
+
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable; the choice lasts for this page only */
+  }
+}
+
+function storedRole(): { id: string; custom: string } {
+  try {
+    const { id, custom } = JSON.parse(load(ROLE_KEY) ?? "{}");
+    const known = id === CUSTOM_ROLE || ROLES.some((r) => r.id === id);
+    return { id: known ? id : DEFAULT_ROLE, custom: typeof custom === "string" ? custom.slice(0, MAX_ROLE_LENGTH) : "" };
+  } catch {
+    return { id: DEFAULT_ROLE, custom: "" };
+  }
+}
+
+const savedRole = storedRole();
+const savedEffort = EFFORTS.find((e) => e.id === load(EFFORT_KEY))?.id ?? "";
 
 /** Reasoning blobs are provider-specific (some are signed); never replay them to another model. */
 function withoutReasoning(history: WireMessage[]): WireMessage[] {
@@ -42,24 +67,46 @@ class Chat {
   defaultModel = $state("");
   /** Selected model id; "" until the model list loads. */
   model = $state("");
+  roleId = $state(savedRole.id);
+  customRole = $state(savedRole.custom);
+  /** The role as it will be sent with the next question. */
+  role = $derived.by(() => {
+    if (this.roleId === CUSTOM_ROLE) return { name: "Custom role", instructions: this.customRole.trim() };
+    const preset = ROLES.find((r) => r.id === this.roleId) ?? ROLES[0];
+    return { name: preset.name, instructions: preset.instructions };
+  });
+
+  defaultEffort = $state("medium");
+  /** Chosen reasoning effort; "" means the server default. */
+  effort = $state(savedEffort);
+  /** Whether the selected model takes a reasoning effort at all. */
+  reasons = $derived(this.models.find((m) => m.id === (this.model || this.defaultModel))?.reasoning ?? true);
 
   #controller: AbortController | null = null;
   #seq = 0;
 
-  setModels(list: { default: string; models: ModelInfo[] }): void {
+  setModels(list: { default: string; default_effort?: string; models: ModelInfo[] }): void {
     this.models = list.models;
     this.defaultModel = list.default;
-    const saved = storedModel();
+    if (list.default_effort) this.defaultEffort = list.default_effort;
+    const saved = load(MODEL_KEY);
     this.model = saved && list.models.some((m) => m.id === saved) ? saved : list.default;
+  }
+
+  setEffort(id: string): void {
+    this.effort = id;
+    save(EFFORT_KEY, id);
   }
 
   selectModel(id: string): void {
     this.model = id;
-    try {
-      localStorage.setItem(MODEL_KEY, id);
-    } catch {
-      /* storage unavailable; the choice lasts for this page only */
-    }
+    save(MODEL_KEY, id);
+  }
+
+  setRole(id: string, custom = this.customRole): void {
+    this.roleId = id;
+    this.customRole = custom.slice(0, MAX_ROLE_LENGTH);
+    save(ROLE_KEY, JSON.stringify({ id: this.roleId, custom: this.customRole }));
   }
 
   modelName(id: string): string {
@@ -76,6 +123,8 @@ class Chat {
       id: ++this.#seq,
       question: q,
       model,
+      role: { ...this.role },
+      effort: this.reasons && this.effort ? this.effort : null,
       text: "",
       reasoning: "",
       searches: [],
@@ -163,7 +212,12 @@ class Chat {
     };
 
     try {
-      await streamChat(messages, turn.model || null, onEvent, controller.signal);
+      await streamChat(
+        messages,
+        { model: turn.model, instructions: turn.role.instructions, effort: turn.effort },
+        onEvent,
+        controller.signal,
+      );
       if (!finished) {
         flush();
         turn.status = "error";

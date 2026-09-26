@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fetchUsage } from "./api";
+  import { dismiss, type DismissReason } from "./dismiss";
   import type { UsageReport } from "./types";
 
   /** Bump to refetch, e.g. after each finished answer. */
@@ -10,7 +11,6 @@
   let loading = $state(false);
   let updated = $state<Date | null>(null);
   let open = $state(false);
-  let root: HTMLDivElement;
   let trigger: HTMLButtonElement;
 
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -19,14 +19,12 @@
     return usd.format(n);
   }
 
+  // The badge shows money actually in the account; a key's limit is not a balance.
   const headline = $derived.by(() => {
     if (!report) return null;
     const { key, credits } = report;
     if (credits) {
-      return { text: `${money(credits.remaining)} left`, low: credits.total > 0 && credits.remaining / credits.total < 0.1 };
-    }
-    if (key.limit !== null && key.limit_remaining !== null) {
-      return { text: `${money(key.limit_remaining)} left`, low: key.limit > 0 && key.limit_remaining / key.limit < 0.1 };
+      return { text: `${money(credits.remaining)} balance`, low: credits.total > 0 && credits.remaining / credits.total < 0.1 };
     }
     return { text: `${money(key.usage)} spent`, low: false };
   });
@@ -56,23 +54,16 @@
     if (open) void load();
   }
 
-  function onpointerdown(e: PointerEvent) {
-    if (open && !root.contains(e.target as Node)) open = false;
-  }
-
-  function onkeydown(e: KeyboardEvent) {
-    if (open && e.key === "Escape") {
-      open = false;
-      trigger.focus();
-    }
+  function dismissed(reason: DismissReason) {
+    if (!open) return;
+    open = false;
+    if (reason === "escape") trigger.focus();
   }
 
   const pct = (part: number, whole: number) => `${Math.min(100, Math.max(0, (part / whole) * 100))}%`;
 </script>
 
-<svelte:window {onpointerdown} {onkeydown} />
-
-<div class="spend" bind:this={root}>
+<div class="spend" use:dismiss={dismissed}>
   <button
     type="button"
     class="badge"
@@ -81,6 +72,7 @@
     bind:this={trigger}
     aria-haspopup="dialog"
     aria-expanded={open}
+    title={report?.credits_note ?? undefined}
     onclick={toggle}
   >
     {#if headline}{headline.text}{:else if error}spend unavailable{:else}loading spend…{/if}
@@ -90,10 +82,10 @@
     <div class="panel" role="dialog" aria-label="OpenRouter spend">
       {#if report}
         {@const { key, credits } = report}
-        {#if credits}
-          <section>
-            <h4>Account balance</h4>
-            <p class="big" class:low={headline?.low}>{money(credits.remaining)} <span>remaining</span></p>
+        <section>
+          <h4>Account balance</h4>
+          {#if credits}
+            <p class="big" class:low={headline?.low}>{money(credits.remaining)} <span>available</span></p>
             {#if credits.total > 0}
               <div class="meter" class:low={headline?.low} aria-hidden="true"><div style:width={pct(credits.used, credits.total)}></div></div>
             {/if}
@@ -101,8 +93,10 @@
               <div><dt>Used</dt><dd>{money(credits.used)}</dd></div>
               <div><dt>Purchased</dt><dd>{money(credits.total)}</dd></div>
             </dl>
-          </section>
-        {/if}
+          {:else}
+            <p class="note">{report.credits_note}</p>
+          {/if}
+        </section>
 
         <section>
           <h4>This API key {#if key.is_free_tier}<span class="chip">free tier</span>{/if}</h4>
@@ -126,8 +120,6 @@
             <p class="quiet">No spending limit is set on this key.</p>
           {/if}
         </section>
-
-        {#if report.credits_note}<p class="note">{report.credits_note}</p>{/if}
       {/if}
 
       {#if error}<p class="note error">{error}</p>{/if}

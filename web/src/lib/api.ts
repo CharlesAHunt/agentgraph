@@ -10,7 +10,7 @@ export async function fetchUsage(): Promise<{ report: UsageReport } | { error: s
   }
 }
 
-export async function fetchModels(): Promise<{ default: string; models: ModelInfo[] } | null> {
+export async function fetchModels(): Promise<{ default: string; default_effort?: string; models: ModelInfo[] } | null> {
   try {
     const res = await fetch("/models");
     if (!res.ok) return null;
@@ -38,14 +38,19 @@ export async function fetchCorpus(): Promise<CorpusInfo | null> {
  */
 export async function streamChat(
   messages: WireMessage[],
-  model: string | null,
+  options: { model?: string; instructions?: string; effort?: string | null },
   onEvent: (e: StreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
   const res = await fetch("/chat/stream", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(model ? { messages, model } : { messages }),
+    body: JSON.stringify({
+      messages,
+      model: options.model || undefined,
+      instructions: options.instructions || undefined,
+      effort: options.effort || undefined,
+    }),
     signal,
   });
   if (!res.ok || !res.body) throw new Error(await errorDetail(res));

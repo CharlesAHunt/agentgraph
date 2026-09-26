@@ -279,6 +279,37 @@ through) or `502` (anything else), with body
 fails mid-turn, the tool tells the model the corpus is unavailable and the
 request still succeeds.
 
+### Giving the assistant a role
+
+The system prompt belongs to the server: a request containing a `system`
+(or `developer`) message is rejected with `422`. To steer tone and focus,
+send an optional `"instructions"` string (up to 1000 characters) with the
+request instead:
+
+```bash
+curl -s localhost:8000/chat -H 'content-type: application/json' -d '{
+  "instructions": "Act as a skeptical peer reviewer.",
+  "messages": [{"role": "user", "content": "What limits divertor heat flux?"}]}'
+```
+
+The server appends it, JSON-quoted, after its own prompt in a single system
+message, telling the model the role shapes tone and emphasis but never
+overrides the rules above it. Send it with every request; change it
+whenever you like. The web UI's Role picker offers presets (skeptical
+reviewer, explain simply, reactor engineer) and a custom role.
+
+### Reasoning effort per request
+
+Send an optional `"effort"` (`none`, `minimal`, `low`, `medium`, `high` or
+`xhigh`) to set how hard the model thinks for that request; omit it to use
+`OPENROUTER_REASONING_EFFORT`. `none` turns reasoning off. Any other value
+is rejected with `422`. The effort applies to every model call in the turn
+(the searches and the final answer) and is passed to OpenRouter as
+`reasoning: {"effort": ...}`. Higher effort is slower and costs more, since
+reasoning tokens are billed as output. `GET /models` marks which models
+accept it (`"reasoning": true`) and reports the server's `default_effort`;
+the web UI's Effort picker is disabled for models that don't.
+
 ### Choosing a model per request
 
 `/chat` and `/chat/stream` accept an optional `"model"` next to
@@ -321,9 +352,10 @@ OpenRouter only gives the account balance (`credits`) to a management key,
 so set `OPENROUTER_MANAGEMENT_KEY` to include it; otherwise `credits` is
 `null` and `credits_note` says why. That key can create and delete API keys,
 so it stays on the server and is used for this one read. The web UI shows
-the balance (or the remaining limit, or the spend) in the header, turns it
-red under 10% remaining, and refreshes it after every answer. Like every
-route here, `/usage` is unauthenticated.
+the account balance in the header (or, without a management key, what the
+key has spent; never the key's limit), turns it red under 10% of purchased
+credit, and refreshes it after every answer. Like every route here,
+`/usage` is unauthenticated.
 
 ### Streaming
 
