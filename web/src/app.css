@@ -1,0 +1,120 @@
+:root {
+  --bg: #eef2f7;
+  --surface: #ffffff;
+  --surface-raised: #f6f8fb;
+  --surface-sunk: #e3e9f0;
+  --ink: #17212e;
+  --ink-soft: #4c5b6d;
+  --ink-faint: #7c8b9c;
+  --rule: #ccd6e0;
+  --rule-strong: #b3c0ce;
+  --accent: #c15a26;
+  --accent-strong: #9c4419;
+  --accent-soft: #f6e4d8;
+  --on-accent: #fffaf6;
+  --danger: #b3261e;
+  --danger-soft: #fbe7e5;
+  --shadow: 0 1px 2px rgb(23 33 46 / 0.06), 0 8px 24px -12px rgb(23 33 46 / 0.18);
+
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --column: 760px;
+  --gutter: clamp(16px, 4vw, 28px);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1320;
+    --surface: #121b29;
+    --surface-raised: #172233;
+    --surface-sunk: #0f1724;
+    --ink: #e6ecf3;
+    --ink-soft: #a9b8ca;
+    --ink-faint: #74869b;
+    --rule: #243549;
+    --rule-strong: #34495f;
+    --accent: #e57f41;
+    --accent-strong: #f3a162;
+    --accent-soft: #2c1e12;
+    --on-accent: #1c1006;
+    --danger: #f28b82;
+    --danger-soft: #2e1614;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 30px -14px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-bottom: 180px;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  text-wrap: balance;
+}
+
+button,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--accent-strong);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
