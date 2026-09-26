@@ -35,8 +35,8 @@
     loading = true;
     const result = await fetchUsage();
     loading = false;
-    if ("report" in result) {
-      report = result.report;
+    if ("data" in result) {
+      report = result.data;
       error = null;
       updated = new Date();
     } else {
@@ -126,7 +126,7 @@
 
       <footer>
         <span>{updated ? `Updated ${updated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
-        <button type="button" onclick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+        <button type="button" class="ghost-button" onclick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
       </footer>
     </div>
   {/if}
@@ -289,13 +289,6 @@
   }
   footer button {
     padding: 4px 10px;
-    border: 1px solid var(--rule-strong);
-    background: var(--surface);
-    font: inherit;
-    color: var(--ink-soft);
-  }
-  footer button:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent-strong);
+    font-size: inherit;
   }
 </style>

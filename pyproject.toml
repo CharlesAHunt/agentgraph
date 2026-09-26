@@ -28,6 +28,18 @@ ingest-gpu = [
     "arxiv>=4,<5",
 ]
 
+# Kernel packages for LGRAPH_PYTHON=unsafe-local (development) and the
+# executor integration tests. Container mode needs none of this on the server.
+notebook = [
+    "ipykernel>=6.29,<8",
+    "jupyter_client>=8.6,<9",
+    "numpy",
+    "scipy",
+    "sympy",
+    "matplotlib",
+    "pandas",
+]
+
 [project.scripts]
 lgraph = "lgraph.__main__:main"
 

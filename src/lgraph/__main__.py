@@ -52,6 +52,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(asyncio.run(_ingest(settings, args)))
     elif command == "papers":
         _papers(settings)
+    elif command == "sandbox":
+        raise SystemExit(asyncio.run(_sandbox(settings)))
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -78,6 +80,7 @@ def _parser() -> argparse.ArgumentParser:
     ingest.add_argument("--no-skip-existing", action="store_true", help="re-ingest papers already in the corpus")
 
     sub.add_parser("papers", help="list the corpus")
+    sub.add_parser("sandbox", help="check that the run_python sandbox starts and is isolated")
     return parser
 
 
@@ -199,6 +202,59 @@ def _papers(settings: Settings) -> None:
         return
     for p in papers:
         print(f"{p.citation_line()}  [{p.chunk_count} chunks]")
+
+
+
+SANDBOX_CHECKS = [
+    ("kernel runs code", "print(1 + 1)", "2"),
+    ("SymPy works", "print(sp.integrate(sp.exp(-sp.Symbol('x')**2), (sp.Symbol('x'), -sp.oo, sp.oo)))", "sqrt(pi)"),
+    ("network is blocked",
+     "import socket\ntry:\n    socket.create_connection(('1.1.1.1', 53), timeout=3)\n    print('OPEN')\n"
+     "except OSError:\n    print('BLOCKED')", "BLOCKED"),
+    # Read the mount table rather than try a write: the sandbox user could not write
+    # to most paths anyway, so a failed write would not prove --read-only.
+    ("filesystem is read-only",
+     "try:\n    roots = [l.split() for l in open('/proc/mounts') if l.split()[1:2] == ['/']]\n"
+     "    print('READ-ONLY' if roots and 'ro' in roots[-1][3].split(',') else 'WRITABLE')\n"
+     "except OSError:\n    print('unknown')", "READ-ONLY"),
+    ("memory limited to 1 GiB",
+     "try:\n    print(open('/sys/fs/cgroup/memory.max').read().strip())\nexcept OSError:\n    print('unknown')",
+     "1073741824"),
+]
+
+
+async def _sandbox(settings: Settings) -> int:
+    import uuid  # noqa: PLC0415
+
+    from .notebook import SandboxError, open_kernel_pool  # noqa: PLC0415
+
+    if settings.python == "off":
+        print("LGRAPH_PYTHON is off. Set LGRAPH_PYTHON=container (or unsafe-local for development).", file=sys.stderr)
+        return 2
+    pool = await open_kernel_pool(settings)
+    if pool is None:
+        print("The sandbox is not available; see the messages above.", file=sys.stderr)
+        return 1
+    session = str(uuid.uuid4())
+    failures = 0
+    try:
+        print(f"starting a sandbox ({settings.python})…", flush=True)
+        for label, code, expected in SANDBOX_CHECKS:
+            try:
+                cell = await pool.execute(session, code)
+            except SandboxError as exc:
+                print(f"FAIL  {label}: {exc}")
+                return 1
+            out = "".join(o.get("text", "") for o in cell["outputs"] if o["type"] == "stream").strip()
+            ok = expected in out
+            failures += not ok
+            detail = "" if ok else f" (got {out or cell['status']!r})"
+            print(f"{'ok  ' if ok else 'FAIL'}  {label}{detail}")
+    finally:
+        await pool.close_all()
+    if failures and settings.python == "unsafe-local":
+        print("unsafe-local has no isolation, so the isolation checks are expected to fail.")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

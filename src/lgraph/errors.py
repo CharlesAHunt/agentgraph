@@ -7,8 +7,12 @@ surface as, and the API layer turns it into a response.
 from __future__ import annotations
 
 
+from typing import NoReturn
+
 import httpx
 from openrouter.errors import NoResponseError, OpenRouterError
+
+from .text import truncate
 
 # ChatOpenRouter raises a plain ValueError for API-level errors it detects in
 # an otherwise successful HTTP response. This is the prefix it uses.
@@ -64,8 +68,14 @@ def translate(exc: BaseException) -> UpstreamError | None:
     return None
 
 
-def _truncate(text: str, limit: int = 500) -> str:
+def _truncate(text: str) -> str:
     """Keep an unexpected upstream body from flooding logs and error payloads."""
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit]}... [{len(text) - limit} more chars]"
+    return truncate(text, 500)
+
+
+def raise_upstream(exc: BaseException) -> NoReturn:
+    """Raise ``exc`` as an :class:`UpstreamError` when it is an upstream failure, else unchanged."""
+    upstream = translate(exc)
+    if upstream is None:
+        raise exc
+    raise upstream from exc

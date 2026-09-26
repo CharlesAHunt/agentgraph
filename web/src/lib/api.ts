@@ -1,35 +1,52 @@
-import type { CorpusInfo, ModelInfo, StreamEvent, UsageReport, WireMessage } from "./types";
+import type { Cell, CorpusInfo, ModelInfo, StreamEvent, UsageReport, WireMessage } from "./types";
 
-export async function fetchUsage(): Promise<{ report: UsageReport } | { error: string }> {
+/** A JSON request whose failure the caller shows to the user. */
+async function request<T>(url: string, init?: RequestInit): Promise<{ data: T } | { error: string }> {
   try {
-    const res = await fetch("/usage");
+    const res = await fetch(url, init);
     if (!res.ok) return { error: await errorDetail(res) };
-    return { report: await res.json() };
+    return { data: await res.json() };
   } catch {
     return { error: "Can't reach the lgraph server." };
   }
 }
 
-export async function fetchModels(): Promise<{ default: string; default_effort?: string; models: ModelInfo[] } | null> {
+/** A JSON GET whose failure just hides the feature; null on any error. */
+async function getJson(url: string): Promise<any | null> {
   try {
-    const res = await fetch("/models");
-    if (!res.ok) return null;
-    const body = await res.json();
-    return typeof body.default === "string" && Array.isArray(body.models) ? body : null;
+    const res = await fetch(url);
+    return res.ok ? await res.json() : null;
   } catch {
     return null;
   }
 }
 
+/** Run code in a conversation's kernel, e.g. a cell the user edited. */
+export function executeCell(session: string, code: string) {
+  return request<Cell>(`/sessions/${encodeURIComponent(session)}/execute`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+}
+
+/** Shut a conversation's kernel down; best effort. */
+export function endSession(session: string): void {
+  void fetch(`/sessions/${encodeURIComponent(session)}`, { method: "DELETE", keepalive: true }).catch(() => {});
+}
+
+export function fetchUsage() {
+  return request<UsageReport>("/usage");
+}
+
+export async function fetchModels(): Promise<{ default: string; default_effort?: string; models: ModelInfo[] } | null> {
+  const body = await getJson("/models");
+  return typeof body?.default === "string" && Array.isArray(body.models) ? body : null;
+}
+
 export async function fetchCorpus(): Promise<CorpusInfo | null> {
-  try {
-    const res = await fetch("/papers");
-    if (!res.ok) return null;
-    const body = await res.json();
-    return { enabled: Boolean(body.enabled), papers: Array.isArray(body.papers) ? body.papers.length : 0 };
-  } catch {
-    return null;
-  }
+  const body = await getJson("/papers?count_only=true");
+  return body ? { enabled: Boolean(body.enabled), papers: Number(body.count) || 0 } : null;
 }
 
 /**
@@ -38,7 +55,7 @@ export async function fetchCorpus(): Promise<CorpusInfo | null> {
  */
 export async function streamChat(
   messages: WireMessage[],
-  options: { model?: string; instructions?: string; effort?: string | null },
+  options: { model?: string; instructions?: string; effort?: string | null; session?: string },
   onEvent: (e: StreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -50,6 +67,7 @@ export async function streamChat(
       model: options.model || undefined,
       instructions: options.instructions || undefined,
       effort: options.effort || undefined,
+      session: options.session || undefined,
     }),
     signal,
   });

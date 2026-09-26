@@ -1,7 +1,7 @@
-import { streamChat } from "./api";
+import { endSession, executeCell, streamChat } from "./api";
 import { EFFORTS } from "./efforts";
 import { CUSTOM_ROLE, DEFAULT_ROLE, MAX_ROLE_LENGTH, ROLES } from "./roles";
-import type { ModelInfo, StreamEvent, Turn, WireMessage } from "./types";
+import { PYTHON_TOOL, type ModelInfo, type StreamEvent, type Turn, type WireMessage } from "./types";
 
 const MODEL_KEY = "lgraph.model";
 const ROLE_KEY = "lgraph.role";
@@ -41,7 +41,23 @@ function withoutReasoning(history: WireMessage[]): WireMessage[] {
   return history.map(({ reasoning_details: _dropped, ...rest }) => rest);
 }
 
+/**
+ * A random UUID v4. crypto.randomUUID() is missing on plain-HTTP pages (e.g. the
+ * server opened by LAN address), but getRandomValues works everywhere.
+ */
+function newSessionId(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function describeQuery(name: string, args: Record<string, unknown>): string {
+  if (name === PYTHON_TOOL && typeof args.code === "string") {
+    const first = args.code.split("\n").find((line) => line.trim()) ?? "";
+    return first.length > 60 ? `${first.slice(0, 57)}…` : first;
+  }
   if (typeof args.query === "string") {
     const years = [args.year_from, args.year_to].filter((y) => typeof y === "number");
     return years.length ? `${args.query} (${years.join("–")})` : args.query;
@@ -67,6 +83,8 @@ class Chat {
   defaultModel = $state("");
   /** Selected model id; "" until the model list loads. */
   model = $state("");
+  /** The model the next question goes to. */
+  selectedModel = $derived(this.model || this.defaultModel);
   roleId = $state(savedRole.id);
   customRole = $state(savedRole.custom);
   /** The role as it will be sent with the next question. */
@@ -80,7 +98,10 @@ class Chat {
   /** Chosen reasoning effort; "" means the server default. */
   effort = $state(savedEffort);
   /** Whether the selected model takes a reasoning effort at all. */
-  reasons = $derived(this.models.find((m) => m.id === (this.model || this.defaultModel))?.reasoning ?? true);
+  reasons = $derived(this.models.find((m) => m.id === this.selectedModel)?.reasoning ?? true);
+
+  /** Identifies this conversation's Python kernel on the server. */
+  session = $state(newSessionId());
 
   #controller: AbortController | null = null;
   #seq = 0;
@@ -116,7 +137,7 @@ class Chat {
   ask(question: string): void {
     const q = question.trim();
     if (!q || this.busy) return;
-    const model = this.model || this.defaultModel;
+    const model = this.selectedModel;
     const previous = this.turns.findLast((t) => t.status === "done")?.model;
     const history = previous && previous !== model ? withoutReasoning(this.history) : this.history;
     this.turns.push({
@@ -129,8 +150,8 @@ class Chat {
       reasoning: "",
       searches: [],
       sources: [],
+      cells: [],
       status: "streaming",
-      history,
     });
     const turn = this.turns[this.turns.length - 1];
     void this.#run(turn, [...history, { role: "user", content: q }]);
@@ -150,8 +171,18 @@ class Chat {
 
   reset(): void {
     this.stop();
+    endSession(this.session);
+    this.session = newSessionId();
     this.turns = [];
     this.history = [];
+  }
+
+  /** Re-run a cell with edited code in this conversation's kernel. Returns an error message, or null. */
+  async runCell(turn: Turn, index: number, code: string): Promise<string | null> {
+    const result = await executeCell(this.session, code);
+    if ("error" in result) return result.error;
+    turn.cells[index] = { ...result.data, edited: true };
+    return null;
   }
 
   async #run(turn: Turn, messages: WireMessage[]): Promise<void> {
@@ -193,6 +224,7 @@ class Chat {
             search.count = e.data.sources.length;
           }
           turn.sources.push(...e.data.sources);
+          if (e.data.cell) turn.cells.push(e.data.cell);
           break;
         }
         case "done":
@@ -214,7 +246,7 @@ class Chat {
     try {
       await streamChat(
         messages,
-        { model: turn.model, instructions: turn.role.instructions, effort: turn.effort },
+        { model: turn.model, instructions: turn.role.instructions, effort: turn.effort, session: this.session },
         onEvent,
         controller.signal,
       );

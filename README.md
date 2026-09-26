@@ -84,6 +84,10 @@ precedence). `.env` is gitignored.
 | `LGRAPH_MINERU_TIER` | `flash` | `flash` reads the PDF text layer with no model download; `standard` and `advanced` add layout models and OCR |
 | `LGRAPH_MINERU_API_URL` | unset | Use a self-hosted `mineru-kit api-server` instead of parsing locally |
 | `LGRAPH_WEB_DIR` | `web/dist` | Built web UI, served at `/` when the directory exists |
+| `LGRAPH_PYTHON` | `off` | `run_python` notebook tool: `off`, `container` (sandboxed) or `unsafe-local` (development only, no isolation) |
+| `LGRAPH_PYTHON_RUNTIME` | auto | Container CLI, e.g. `distrobox-host-exec podman`. Auto: the host's podman from inside a distrobox, else `podman`, else `docker` |
+| `LGRAPH_PYTHON_IMAGE` | `lgraph-sandbox` | Sandbox image built from `src/lgraph/notebook/Containerfile` |
+| `LGRAPH_PYTHON_TIMEOUT_S` | `30` | Longest a single cell may run before the kernel is interrupted |
 
 ## Build a corpus
 
@@ -245,6 +249,7 @@ beyond localhost.
 ```bash
 curl -s localhost:8000/health
 curl -s localhost:8000/papers
+curl -s 'localhost:8000/papers?count_only=true'   # just {"enabled", "count"}
 
 curl -s localhost:8000/chat \
   -H 'content-type: application/json' \
@@ -400,9 +405,73 @@ uv run lgraph            # terminal 1
 cd web && npm run dev    # terminal 2, open http://localhost:5173
 ```
 
+Equations are typeset with KaTeX: the prompt asks for LaTeX, written
+inline as `$...$` and as display equations in `$$...$$` (`\(...\)` and
+`\[...\]` work too). Prices such as "$3 and $15" are left as text.
+
 Model output is untrusted (a retrieved paper could contain injected HTML),
-so the UI sanitizes rendered Markdown with DOMPurify and renders diagrams
-with mermaid's `strict` security level.
+so the UI sanitizes rendered Markdown, equations included, with DOMPurify,
+renders KaTeX with `trust` off (no `\href` or HTML commands), and renders
+diagrams with mermaid's `strict` security level.
+
+## Python notebook (`run_python`)
+
+With `LGRAPH_PYTHON=container` the agent gets a `run_python` tool: a real
+Jupyter kernel with NumPy, SciPy, SymPy, matplotlib and pandas, one per
+conversation, so variables persist between questions. The model uses it to
+check derivations, solve equations and plot; each run appears in the answer
+as a notebook cell (code, output, LaTeX, figures). You can edit a cell and
+run it again in the same kernel, and **Export .ipynb** in the header
+downloads the conversation as a notebook.
+
+### Setup on Bazzite (or any Fedora atomic desktop) with distrobox
+
+The server runs inside the distrobox; the sandboxes run on the host with
+its rootless podman, reached through `distrobox-host-exec`, which lgraph
+detects on its own. From inside the box, in the repository:
+
+```bash
+distrobox-host-exec podman build -t lgraph-sandbox src/lgraph/notebook   # once, and after updates
+echo 'LGRAPH_PYTHON=container' >> .env
+uv run lgraph sandbox     # every line should say ok
+uv run lgraph             # restart the server
+```
+
+`lgraph sandbox` starts a sandbox and checks that code runs, that the
+network is blocked, that the filesystem is read-only and that the 1 GiB
+memory limit applies (rootless podman needs cgroup v2 delegation for that,
+which Fedora provides). Elsewhere, build with `podman build` or
+`docker build` and the same arguments.
+
+### Isolation
+
+Model-written code is treated as untrusted, since a retrieved paper could
+try to steer the model. Each sandbox is a container with no network, a
+read-only filesystem apart from a 256 MB `/tmp`, all capabilities dropped,
+`no-new-privileges`, a non-root user, 1 GiB of memory, one CPU and at most
+256 processes, and no volumes or bind mounts. The server talks to it over
+the container's stdin and stdout, so no port is opened. A cell is
+interrupted after `LGRAPH_PYTHON_TIMEOUT_S`; a container that stops
+answering is removed. At most four sandboxes run at once, idle ones are
+removed after 15 minutes, and leftovers are cleaned up when the server
+starts. Outputs are size-limited and images are checked to be PNGs before
+they reach the model or the browser.
+
+Kernels are addressed by a random conversation id (a UUID the browser
+sends as `"session"`). The service has no authentication, so anyone who
+can reach it and knows a session id can use that kernel; keep it on
+localhost or a trusted network. `LGRAPH_PYTHON=unsafe-local` runs the
+kernel as a plain process on the server with none of the above, for
+development only (`uv sync --extra notebook` installs what it needs).
+
+### API
+
+`/chat` and `/chat/stream` take an optional `"session"` UUID; without one
+the tool reports that it is unavailable. Cells appear in `tool_end` events
+(`"cell"`) and in `done` and `/chat` responses (`"cells"`).
+`POST /sessions/{session}/execute` with `{"code": "..."}` runs code in that
+kernel and returns the cell (`404` when the notebook is off, `503` when the
+sandbox fails). `DELETE /sessions/{session}` shuts the kernel down.
 
 ## Test
 
@@ -424,8 +493,11 @@ src/lgraph/
   prompts.py        default citation-oriented system prompt
   messages.py       wire dict <-> LangChain message conversion
   errors.py         UpstreamError and exception -> status translation
-  api.py            FastAPI app: /health, /papers, /models, /usage, /chat, /chat/stream, /results, web UI
-  __main__.py       CLI: serve (default), discover, ingest, papers
+  api.py            FastAPI app: /health, /papers, /models, /usage, /chat, /chat/stream, /sessions, /results, web UI
+  catalog.py        ModelCatalog (offered models) and Agents (one compiled agent per model)
+  turns.py          a turn as a /chat result or as server-sent events
+  text.py           truncate()
+  __main__.py       CLI: serve (default), discover, ingest, papers, sandbox
   rag/
     documents.py    Paper, Chunk, Hit, Source
     store.py        PaperStore over LanceDB (hybrid search, upsert)
@@ -437,6 +509,11 @@ src/lgraph/
     parse.py        Parser protocol, MinerU adapter
     chunk.py        section-aware chunking
     ingest.py       the pipeline, preflight check, early stop
+  notebook/
+    executor.py     runs inside the sandbox: drives a Jupyter kernel over stdin/stdout
+    Containerfile   the sandbox image
+    sandbox.py      container command, one sandbox per session, KernelPool
+    tool.py         run_python
 web/                Svelte 5 + Vite chat UI (npm run build -> web/dist)
   src/lib/
     api.ts          /chat/stream client (SSE over fetch), /papers

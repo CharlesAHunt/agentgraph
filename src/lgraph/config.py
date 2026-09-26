@@ -28,6 +28,9 @@ DEFAULT_EMBEDDING_DIMENSIONS = 1536
 DEFAULT_RETRIEVAL_K = 6
 DEFAULT_MINERU_TIER = "flash"
 DEFAULT_WEB_DIR = Path("web/dist")
+DEFAULT_PYTHON_IMAGE = "lgraph-sandbox"
+DEFAULT_PYTHON_TIMEOUT_S = 30.0
+PYTHON_MODES = frozenset({"off", "container", "unsafe-local"})
 
 # OpenRouter's unified reasoning levels. "none" turns reasoning off.
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
@@ -74,6 +77,13 @@ class Settings:
     # Built frontend (`npm run build` in web/). Served at / when it exists.
     web_dir: Path = DEFAULT_WEB_DIR
 
+    # run_python: "off", "container" (sandboxed) or "unsafe-local" (development only).
+    python: str = "off"
+    # Container CLI command prefix, e.g. "distrobox-host-exec podman". None = auto-detect.
+    python_runtime: str | None = None
+    python_image: str = DEFAULT_PYTHON_IMAGE
+    python_timeout_s: float = DEFAULT_PYTHON_TIMEOUT_S
+
     def __post_init__(self) -> None:
         if self.reasoning_effort not in REASONING_EFFORTS:
             raise ConfigError(
@@ -88,6 +98,10 @@ class Settings:
             raise ConfigError("embedding_dimensions must be a positive integer.")
         if self.retrieval_k <= 0:
             raise ConfigError("retrieval_k must be a positive integer.")
+        if self.python not in PYTHON_MODES:
+            raise ConfigError(f"LGRAPH_PYTHON must be one of {_choices(PYTHON_MODES)}; got {self.python!r}.")
+        if self.python_timeout_s <= 0:
+            raise ConfigError("LGRAPH_PYTHON_TIMEOUT_S must be positive.")
 
     @property
     def lancedb_dir(self) -> Path:
@@ -145,6 +159,10 @@ class Settings:
             mineru_tier=os.environ.get("LGRAPH_MINERU_TIER", DEFAULT_MINERU_TIER),
             mineru_api_url=os.environ.get("LGRAPH_MINERU_API_URL") or None,
             web_dir=Path(os.environ.get("LGRAPH_WEB_DIR") or DEFAULT_WEB_DIR),
+            python=os.environ.get("LGRAPH_PYTHON", "off").strip().lower() or "off",
+            python_runtime=os.environ.get("LGRAPH_PYTHON_RUNTIME") or None,
+            python_image=os.environ.get("LGRAPH_PYTHON_IMAGE") or DEFAULT_PYTHON_IMAGE,
+            python_timeout_s=_float_from_env("LGRAPH_PYTHON_TIMEOUT_S", DEFAULT_PYTHON_TIMEOUT_S),
         )
 
     def __repr__(self) -> str:

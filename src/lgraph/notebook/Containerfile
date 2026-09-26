@@ -1,0 +1,26 @@
+# Sandbox image for lgraph's run_python tool. Build it on the machine that
+# runs the containers, e.g. from inside a distrobox:
+#   distrobox-host-exec podman build -t lgraph-sandbox src/lgraph/notebook
+# Fully qualified base image: Fedora's podman refuses short names.
+FROM docker.io/library/python:3.12-slim
+
+RUN pip install --no-cache-dir \
+        "ipykernel>=6.29,<8" "jupyter_client>=8.6,<9" \
+        numpy scipy sympy matplotlib pandas \
+    && useradd --uid 10001 --no-create-home --home-dir /tmp sandbox \
+    # Build matplotlib's font cache now. matplotlib needs a writable config dir,
+    # so the entrypoint copies it into the /tmp tmpfs (the rest is read-only).
+    && MPLCONFIGDIR=/opt/matplotlib python -c "import matplotlib.pyplot" \
+    && chmod -R a+rX /opt/matplotlib
+
+COPY executor.py /opt/lgraph/executor.py
+
+USER 10001
+ENV HOME=/tmp \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    IPYTHONDIR=/tmp/ipython \
+    JUPYTER_RUNTIME_DIR=/tmp/jupyter \
+    JUPYTER_DATA_DIR=/tmp/jupyter-data \
+    PYTHONDONTWRITEBYTECODE=1
+WORKDIR /tmp
+ENTRYPOINT ["sh", "-c", "cp -r /opt/matplotlib /tmp/matplotlib && exec python /opt/lgraph/executor.py"]

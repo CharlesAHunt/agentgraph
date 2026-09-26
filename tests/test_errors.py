@@ -37,7 +37,7 @@ def test_sdk_error_body_is_truncated() -> None:
     err = translate(_sdk_error(500, "x" * 5000))
     assert err is not None
     assert len(err.message) < 1000
-    assert "more chars" in err.message
+    assert "more characters" in err.message
 
 
 def test_no_response_maps_to_502() -> None:

@@ -72,3 +72,16 @@ def test_load_items_mixes_ids_and_records(tmp_path: Path) -> None:
     items = load_items(f)
     assert items[0] == "1706.03762" and items[2] == "10.1000/x"
     assert isinstance(items[1], Paper) and items[1].authors == ("A B",) and items[1].year == 2025
+
+
+def test_python_dash_m_reaches_the_sandbox_command(tmp_path: Path) -> None:
+    # Code defined after an `if __name__ == "__main__"` guard would not exist yet here.
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "OPENROUTER_API_KEY": "k", "LGRAPH_PYTHON": "off"}
+    run = subprocess.run([sys.executable, "-m", "lgraph", "sandbox"], cwd=tmp_path, env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert run.returncode == 2
+    assert "LGRAPH_PYTHON is off" in run.stderr

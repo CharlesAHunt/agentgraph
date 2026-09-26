@@ -2,8 +2,11 @@
   import { tick } from "svelte";
   import Activity from "./Activity.svelte";
   import Answer from "./Answer.svelte";
+  import CellView from "./CellView.svelte";
   import Sources from "./Sources.svelte";
   import { chat } from "./chat.svelte";
+  import { copier } from "./clipboard.svelte";
+  import { plural } from "./format";
   import { groupPapers } from "./sources";
   import type { Turn } from "./types";
 
@@ -11,7 +14,7 @@
 
   const papers = $derived(groupPapers(turn.sources));
   let flash = $state<number | null>(null);
-  let copied = $state(false);
+  const clipboard = copier();
   let flashTimer: ReturnType<typeof setTimeout>;
 
   async function cite(n: number) {
@@ -22,15 +25,6 @@
     flashTimer = setTimeout(() => (flash = null), 1600);
   }
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(turn.text);
-      copied = true;
-      setTimeout(() => (copied = false), 1500);
-    } catch {
-      /* clipboard blocked; nothing useful to do */
-    }
-  }
 </script>
 
 <article class="turn">
@@ -45,15 +39,27 @@
     </details>
   {/if}
 
-  {#if turn.text}
+  {#if turn.text || turn.cells.length}
     <div class="brief" class:live={turn.status === "streaming"}>
-      <Answer text={turn.text} {papers} streaming={turn.status === "streaming"} oncite={cite} />
+      {#if turn.cells.length}
+        <section class="notebook" aria-label="Python notebook">
+          <h3 class="section-heading">Notebook <span>{plural(turn.cells.length, "cell")} · this conversation's kernel</span></h3>
+          {#each turn.cells as cell, i (cell.id)}
+            <CellView {cell} onrun={(code) => chat.runCell(turn, i, code)} />
+          {/each}
+        </section>
+      {/if}
+      {#if turn.text}
+        <Answer text={turn.text} {papers} streaming={turn.status === "streaming"} oncite={cite} />
+      {/if}
       {#if papers.length}
         <Sources {papers} turnId={turn.id} {flash} />
       {/if}
       {#if turn.status === "done"}
         <div class="actions">
-          <button type="button" onclick={copy}>{copied ? "Copied" : "Copy markdown"}</button>
+          <button type="button" class="ghost-button" onclick={() => clipboard.copy(turn.text)}>
+            {clipboard.copied ? "Copied" : "Copy markdown"}
+          </button>
         </div>
       {/if}
     </div>
@@ -62,12 +68,12 @@
   {#if turn.status === "error"}
     <div class="notice error" role="alert">
       <p>{turn.error}</p>
-      {#if last}<button type="button" onclick={() => chat.retry()}>Try again</button>{/if}
+      {#if last}<button type="button" class="ghost-button" onclick={() => chat.retry()}>Try again</button>{/if}
     </div>
   {:else if turn.status === "stopped"}
     <div class="notice">
       <p>Stopped. This question won't be sent as context for the next one.</p>
-      {#if last}<button type="button" onclick={() => chat.retry()}>Ask again</button>{/if}
+      {#if last}<button type="button" class="ghost-button" onclick={() => chat.retry()}>Ask again</button>{/if}
     </div>
   {/if}
 </article>
@@ -91,6 +97,12 @@
     border-top: 3px solid var(--accent);
     box-shadow: var(--shadow);
     padding: clamp(18px, 4vw, 36px);
+  }
+  .notebook {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 26px;
   }
   .reasoning {
     border-left: 2px solid var(--rule-strong);
@@ -118,16 +130,7 @@
   .actions button,
   .notice button {
     padding: 6px 12px;
-    border: 1px solid var(--rule-strong);
-    background: var(--surface);
-    font-family: var(--font-mono);
     font-size: 0.74rem;
-    color: var(--ink-soft);
-  }
-  .actions button:hover,
-  .notice button:hover {
-    border-color: var(--accent);
-    color: var(--accent-strong);
   }
   .notice {
     display: flex;

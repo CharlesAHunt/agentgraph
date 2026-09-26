@@ -166,7 +166,7 @@ class PaperStore:
         year_to: int | None = None,
     ) -> list[Hit]:
         where = _year_clause(year_from, year_to)
-        self.refresh()
+        self._chunks.checkout_latest()  # search reads only the chunks table
         if self._chunks.count_rows() == 0:
             return []
         query = self._chunks.search(query_type="hybrid").vector(list(vector)).text(text)
@@ -181,6 +181,10 @@ class PaperStore:
         rows = self._papers.to_arrow().to_pylist()
         rows.sort(key=lambda r: ((r.get("year") or 0), r["title"]))
         return [Paper.from_record(r) for r in rows]
+
+    def count_papers(self) -> int:
+        self._papers.checkout_latest()
+        return self._papers.count_rows()
 
     def chunk_count(self, key: str) -> int:
         self.refresh()

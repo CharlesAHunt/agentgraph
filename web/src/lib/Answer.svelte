@@ -214,6 +214,16 @@
     display: block;
   }
 
+  .answer :global(.math-display) {
+    margin: 0 0 1.1em;
+  }
+  .answer :global(.katex) {
+    font-size: 1.08em;
+  }
+  .answer :global(.stat-label .katex) {
+    font-size: 1em;
+  }
+
   .answer :global(button.cite) {
     display: inline;
     padding: 0 1px;

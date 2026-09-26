@@ -25,6 +25,9 @@ summary in a fenced code block labelled `stats`, one per line as \
 `value | short label`, at most four lines, using only values from the excerpts.
 - Organise the body under `##` headings, with bold lead-ins and bullet lists \
 where they help.
+- Write mathematics in LaTeX: inline as `$...$`, and display equations as \
+`$$...$$` on a line of their own. Keep the excerpts' symbols (for example \
+`$P_{SOL}/R$`). Write money as `USD 5`, never with a dollar sign.
 - When a mechanism, causal chain or comparison is clearer as a picture, add at \
 most one small diagram as a fenced code block labelled `mermaid`: a top-down \
 flowchart (`flowchart TD`) of no more than eight nodes with short labels. Skip \
@@ -54,3 +57,14 @@ def compose_system_prompt(base: str | None, instructions: str | None) -> str | N
     if base is None:
         return f"{ROLE_ONLY}\n{quoted}"
     return f"{base}\n\n{ROLE_AFTER_RULES}\n{quoted}"
+
+
+PYTHON_GUIDE = """\
+You also have `run_python`, a Jupyter kernel that lasts for this conversation. \
+Use it when a calculation, derivation or plot makes the answer more reliable \
+or clearer: check algebra, solve or simplify with SymPy, put numbers from the \
+excerpts into formulas, or plot a relationship. Take physics claims from the \
+corpus and cite them; use Python for the mathematics. Figures appear with \
+your answer, so refer to them as "the figure above". State key results in \
+the text with units.\
+"""

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { plural } from "./format";
   import { paperLink, shortAuthors } from "./sources";
   import type { Paper } from "./types";
 
@@ -15,7 +16,7 @@
 </script>
 
 <section class="sources" aria-label="Sources">
-  <h3>Sources <span>{papers.length} {papers.length === 1 ? "paper" : "papers"}</span></h3>
+  <h3 class="section-heading">Sources <span>{plural(papers.length, "paper")}</span></h3>
   <ol>
     {#each shown as p (p.key)}
       {@const link = paperLink(p)}
@@ -50,17 +51,7 @@
     border-top: 1px solid var(--rule);
   }
   h3 {
-    margin: 0 0 6px;
-    font-size: 1rem;
-    font-weight: 600;
-  }
-  h3 span {
-    margin-left: 6px;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    font-weight: 400;
-    letter-spacing: 0.06em;
-    color: var(--ink-faint);
+    margin-bottom: 6px;
   }
   ol {
     list-style: none;

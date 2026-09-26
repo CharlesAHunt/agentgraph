@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from langchain_core.tools import tool
 
 from lgraph.api import create_app
 from lgraph.config import Settings
+from lgraph.notebook.sandbox import SandboxError, make_cell
 from lgraph.prompts import DEFAULT_RAG_SYSTEM_PROMPT
 from lgraph.rag.store import PaperStore
 
@@ -28,8 +30,8 @@ from .conftest import (
 REASONING = [{"type": "reasoning.text", "text": "t", "format": "unknown"}]
 
 
-def _client(settings: Settings, model, tools=()) -> TestClient:
-    app = create_app(settings, model=model, tools=list(tools))
+def _client(settings: Settings, model, tools=(), kernel_pool=None) -> TestClient:
+    app = create_app(settings, model=model, tools=list(tools), kernel_pool=kernel_pool)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -78,6 +80,7 @@ def test_chat_returns_history_plus_assistant_reply(settings: Settings) -> None:
             {"role": "assistant", "content": "hello", "reasoning_details": REASONING},
         ],
         "sources": [],
+        "cells": [],
     }
 
 
@@ -351,6 +354,7 @@ def test_stream_emits_tokens_then_done_matching_chat(settings: Settings) -> None
             {"role": "assistant", "content": "hello streaming world"},
         ],
         "sources": [],
+        "cells": [],
     }
 
 
@@ -635,6 +639,111 @@ def test_models_reports_reasoning_support_and_default_effort(settings: Settings)
     assert all(m["reasoning"] is True for m in body["models"])
 
 
+# --- run_python --------------------------------------------------------------
+
+SESSION = "0b7c8f5e-2f4a-4c1e-9d3b-5a6e7f8091ab"
+
+
+class FakeKernels:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.runs: list[tuple[str, str]] = []
+        self.closed: list[str] = []
+        self.error = error
+
+    async def execute(self, session: str, code: str) -> dict:
+        if self.error:
+            raise self.error
+        self.runs.append((session, code))
+        return make_cell(code, {"status": "ok", "execution_count": len(self.runs),
+                                "outputs": [{"type": "text", "text": "2"}]}, 3)
+
+    async def close(self, session: str) -> None:
+        self.closed.append(session)
+
+    async def close_all(self) -> None:
+        pass
+
+    async def reap_forever(self) -> None:
+        await asyncio.Event().wait()
+
+
+def test_run_python_streams_a_cell_and_gives_the_model_a_summary(settings: Settings) -> None:
+    model = streaming_model(
+        AIMessage(content="", tool_calls=[_tool_call("run_python", {"code": "1 + 1"}, "call-py")]),
+        AIMessage(content="The sum is 2."),
+    )
+    kernels = FakeKernels()
+    with _client(settings, model, kernel_pool=kernels) as c:
+        r = c.post("/chat/stream", json={"session": SESSION, "messages": [{"role": "user", "content": "add"}]})
+    events = _events(r.text)
+
+    assert kernels.runs == [(SESSION, "1 + 1")]
+    end = next(d for e, d in events if e == "tool_end")
+    assert end["name"] == "run_python" and end["cell"]["code"] == "1 + 1"
+    assert events[-1][0] == "done" and [c["code"] for c in events[-1][1]["cells"]] == ["1 + 1"]
+    tool_message = model.calls[1][-1]
+    assert "result: 2" in tool_message.content and "status: ok" in tool_message.content
+
+
+def test_run_python_without_a_session_tells_the_model(settings: Settings) -> None:
+    model = fake_model(
+        AIMessage(content="", tool_calls=[_tool_call("run_python", {"code": "1"}, "call-py")]),
+        AIMessage(content="ok"),
+    )
+    kernels = FakeKernels()
+    with _client(settings, model, kernel_pool=kernels) as c:
+        r = c.post("/chat", json={"messages": [{"role": "user", "content": "q"}]})
+    assert kernels.runs == [] and r.json()["cells"] == []
+    assert "no conversation session" in model.calls[1][-1].content
+
+
+def test_python_guide_is_added_to_the_prompt_when_enabled(settings: Settings) -> None:
+    model = fake_model("ok")
+    with _client(settings, model, kernel_pool=FakeKernels()) as c:
+        c.post("/chat", json={"messages": [{"role": "user", "content": "q"}]})
+    [system] = _system_messages(model.calls[0])
+    assert "run_python" in system
+
+
+def test_execute_endpoint_runs_code_in_the_session(settings: Settings) -> None:
+    kernels = FakeKernels()
+    with _client(settings, fake_model(), kernel_pool=kernels) as c:
+        r = c.post(f"/sessions/{SESSION}/execute", json={"code": "1 + 1"})
+        deleted = c.delete(f"/sessions/{SESSION}")
+    assert r.status_code == 200 and r.json()["outputs"] == [{"type": "text", "text": "2"}]
+    assert kernels.runs == [(SESSION, "1 + 1")]
+    assert deleted.status_code == 204 and kernels.closed == [SESSION]
+
+
+def test_execute_endpoint_reports_a_broken_sandbox(settings: Settings) -> None:
+    with _client(settings, fake_model(), kernel_pool=FakeKernels(error=SandboxError("kernel exited"))) as c:
+        r = c.post(f"/sessions/{SESSION}/execute", json={"code": "1"})
+    assert r.status_code == 503 and "kernel exited" in r.json()["detail"]
+
+
+def test_execute_endpoint_is_404_when_the_notebook_is_off(settings: Settings) -> None:
+    with _client(settings, fake_model()) as c:
+        r = c.post(f"/sessions/{SESSION}/execute", json={"code": "1"})
+        deleted = c.delete(f"/sessions/{SESSION}")
+    assert r.status_code == 404 and deleted.status_code == 204
+
+
+@pytest.mark.parametrize("path", ["/sessions/not-a-uuid/execute", "/sessions/..%2F..%2Fetc/execute"])
+def test_session_ids_must_be_uuids(settings: Settings, path: str) -> None:
+    kernels = FakeKernels()
+    with _client(settings, fake_model(), kernel_pool=kernels) as c:
+        r = c.post(path, json={"code": "1"})
+        chat = c.post("/chat", json={"session": "../../x", "messages": [{"role": "user", "content": "q"}]})
+    assert r.status_code in (404, 422) and chat.status_code == 422
+    assert kernels.runs == []
+
+
+def test_execute_rejects_oversized_code(settings: Settings) -> None:
+    with _client(settings, fake_model(), kernel_pool=FakeKernels()) as c:
+        r = c.post(f"/sessions/{SESSION}/execute", json={"code": "x" * 20_001})
+    assert r.status_code == 422
+
+
 # --- /usage ------------------------------------------------------------------
 
 KEY_USAGE = {"usage": 12.5, "usage_daily": 0.4, "usage_weekly": 3.1, "usage_monthly": 9.8,
@@ -706,3 +815,16 @@ def test_no_frontend_mount_without_a_build(tmp_path: Path) -> None:
     settings = Settings(api_key="k", model="test/model", data_dir=tmp_path, web_dir=tmp_path / "none")
     with _client(settings, fake_model()) as c:
         assert c.get("/").status_code == 404
+
+
+def test_papers_count_only_reports_size_without_the_list(tmp_path: Path) -> None:
+    emb = FakeEmbeddings(8)
+    _seed(tmp_path, emb)
+    app = create_app(_rag_settings(tmp_path), model=fake_model(), embeddings=emb)
+    with TestClient(app) as c:
+        assert c.get("/papers?count_only=true").json() == {"enabled": True, "count": 1}
+
+
+def test_papers_count_only_when_rag_disabled(settings: Settings) -> None:
+    with _client(settings, fake_model()) as c:
+        assert c.get("/papers?count_only=true").json() == {"enabled": False, "count": 0}

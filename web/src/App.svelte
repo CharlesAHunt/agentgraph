@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import Composer from "./lib/Composer.svelte";
   import Spend from "./lib/Spend.svelte";
+  import { downloadNotebook } from "./lib/ipynb";
   import Turn from "./lib/Turn.svelte";
   import Welcome from "./lib/Welcome.svelte";
   import { fetchCorpus, fetchModels } from "./lib/api";
@@ -11,6 +12,7 @@
   let corpus = $state<CorpusInfo | null>(null);
   let stickToBottom = true;
   const finished = $derived(chat.turns.filter((t) => t.status === "done").length);
+  const hasCells = $derived(chat.turns.some((t) => t.cells.length > 0));
 
   onMount(async () => {
     const [info, models] = await Promise.all([fetchCorpus(), fetchModels()]);
@@ -57,6 +59,9 @@
       {/if}
       <Spend refresh={finished} />
       {#if chat.turns.length}
+        {#if hasCells}
+          <button type="button" class="new" onclick={() => downloadNotebook(chat.turns)} title="Download this conversation as a Jupyter notebook">Export .ipynb</button>
+        {/if}
         <button type="button" class="new" onclick={() => chat.reset()}>New chat</button>
       {/if}
     </div>

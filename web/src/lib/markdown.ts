@@ -1,5 +1,6 @@
 import DOMPurify from "dompurify";
-import { Marked, type Tokens } from "marked";
+import katex from "katex";
+import { Marked, type TokenizerAndRendererExtension, type Tokens } from "marked";
 import { matchPaper } from "./sources";
 import type { Paper } from "./types";
 
@@ -18,6 +19,86 @@ function isClosed(raw: string): boolean {
   return !!fence && raw.trimEnd().endsWith(fence) && raw.trim().length > fence.length * 2;
 }
 
+// --- math -------------------------------------------------------------------
+
+// Streaming re-renders the whole answer on every frame; typeset each formula once.
+const TEX_CACHE_MAX = 500;
+const texCache = new Map<string, string>();
+
+function tex(source: string, displayMode: boolean): string {
+  const key = `${displayMode ? "D" : "I"}${source}`;
+  let html = texCache.get(key);
+  if (html === undefined) {
+    // trust:false (the default, stated here on purpose) disables \href, \url and \html* commands.
+    html = katex.renderToString(source, { displayMode, throwOnError: false, strict: "ignore", trust: false });
+    if (texCache.size >= TEX_CACHE_MAX) texCache.delete(texCache.keys().next().value as string);
+    texCache.set(key, html);
+  }
+  return html;
+}
+
+// `$x$` needs non-space just inside both dollars and no digit after the closing one,
+// so prose such as "$3 and $15" is left alone.
+const DOLLAR_MATH = String.raw`\$(?!\s)((?:\\.|[^\\$\n])+?)(?<!\s)\$(?!\d)`;
+
+const INLINE_MATH: { pattern: RegExp; display: boolean }[] = [
+  { pattern: /^\$\$([^$]+?)\$\$/, display: true },
+  { pattern: /^\\\[([\s\S]+?)\\\]/, display: true },
+  { pattern: /^\\\(([\s\S]+?)\\\)/, display: false },
+  { pattern: new RegExp(`^${DOLLAR_MATH}`), display: false },
+];
+
+const mathInline: TokenizerAndRendererExtension = {
+  name: "math",
+  level: "inline",
+  start(src) {
+    const i = src.search(/\$|\\[([]/);
+    return i < 0 ? undefined : i;
+  },
+  tokenizer(src) {
+    for (const { pattern, display } of INLINE_MATH) {
+      const m = pattern.exec(src);
+      if (m) return { type: "math", raw: m[0], text: m[1].trim(), display };
+    }
+    return undefined;
+  },
+  renderer: (token) => tex(token.text, token.display),
+};
+
+const mathBlock: TokenizerAndRendererExtension = {
+  name: "mathBlock",
+  level: "block",
+  start(src) {
+    const i = src.search(/^ {0,3}(?:\$\$|\\\[)/m);
+    return i < 0 ? undefined : i;
+  },
+  tokenizer(src) {
+    const m = /^ {0,3}(?:\$\$([^$]+?)\$\$|\\\[([\s\S]+?)\\\])[ \t]*(?:\n+|$)/.exec(src);
+    if (m) return { type: "mathBlock", raw: m[0], text: (m[1] ?? m[2]).trim() };
+    return undefined;
+  },
+  renderer: (token) => `<div class="math-display">${tex(token.text, true)}</div>\n`,
+};
+
+/** A kernel's text/latex output (e.g. SymPy's `$\displaystyle …$`) as sanitized display math. */
+export function latexOutput(source: string): string {
+  const body = source.trim();
+  // Strip the delimiters when one pair wraps the whole output.
+  const whole = INLINE_MATH.map(({ pattern }) => pattern.exec(body)).find((m) => m?.[0].length === body.length);
+  return DOMPurify.sanitize(`<div class="math-display">${tex(whole ? whole[1].trim() : body, true)}</div>`);
+}
+
+/** Escaped text with any `$…$` segments typeset, for the stats tiles. */
+function textWithMath(text: string): string {
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(new RegExp(DOLLAR_MATH, "g"))) {
+    out += escape(text.slice(last, m.index)) + tex(m[1], false);
+    last = m.index + m[0].length;
+  }
+  return out + escape(text.slice(last));
+}
+
 function statsBlock(text: string): string {
   const tiles = text
     .split("\n")
@@ -26,14 +107,15 @@ function statsBlock(text: string): string {
     .slice(0, 4)
     .map(
       ([value, ...label]) =>
-        `<div class="stat"><div class="stat-value">${escape(value)}</div>` +
-        `<div class="stat-label">${escape(label.join(" | "))}</div></div>`,
+        `<div class="stat"><div class="stat-value">${textWithMath(value)}</div>` +
+        `<div class="stat-label">${textWithMath(label.join(" | "))}</div></div>`,
     );
   return tiles.length ? `<div class="stats">${tiles.join("")}</div>` : "";
 }
 
 const marked = new Marked({
   gfm: true,
+  extensions: [mathBlock, mathInline],
   renderer: {
     code(token: Tokens.Code) {
       const lang = (token.lang ?? "").trim().toLowerCase();
@@ -57,7 +139,7 @@ function linkCitations(root: DocumentFragment, papers: Paper[]): void {
   if (!papers.length) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) =>
-      node.parentElement?.closest("code, pre, a, button, .stats")
+      node.parentElement?.closest("code, pre, a, button, .stats, .katex")
         ? NodeFilter.FILTER_REJECT
         : NodeFilter.FILTER_ACCEPT,
   });

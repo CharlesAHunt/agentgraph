@@ -41,6 +41,28 @@ export interface Search {
   count: number;
 }
 
+/** The notebook tool's name, as the server reports it in tool events. */
+export const PYTHON_TOOL = "run_python";
+
+export type CellOutput =
+  | { type: "stream"; name: "stdout" | "stderr"; text: string }
+  | { type: "text"; text: string }
+  | { type: "latex"; latex: string; text: string }
+  | { type: "image"; png: string; text: string }
+  | { type: "error"; ename: string; evalue: string; traceback: string };
+
+/** One run_python execution, as returned by the server. */
+export interface Cell {
+  id: string;
+  code: string;
+  status: "ok" | "error" | "timeout";
+  execution_count: number | null;
+  outputs: CellOutput[];
+  duration_ms: number;
+  /** Re-run by the user after editing. */
+  edited?: boolean;
+}
+
 export type TurnStatus = "streaming" | "done" | "error" | "stopped";
 
 export interface Turn {
@@ -56,18 +78,17 @@ export interface Turn {
   reasoning: string;
   searches: Search[];
   sources: Source[];
+  cells: Cell[];
   status: TurnStatus;
   error?: string;
-  /** History this turn was sent with, so a failed turn can be retried. */
-  history: WireMessage[];
 }
 
 export type StreamEvent =
   | { event: "token"; data: { text: string } }
   | { event: "reasoning"; data: { text: string } }
   | { event: "tool_start"; data: { id: string; name: string; args: Record<string, unknown> } }
-  | { event: "tool_end"; data: { id: string; name: string; status: string; sources: Source[] } }
-  | { event: "done"; data: { messages: WireMessage[]; sources: Source[] } }
+  | { event: "tool_end"; data: { id: string; name: string; status: string; sources: Source[]; cell?: Cell | null } }
+  | { event: "done"; data: { messages: WireMessage[]; sources: Source[]; cells?: Cell[] } }
   | { event: "error"; data: { detail: string; status: number; upstream_status: number | null } };
 
 /** A chat model from GET /models. Prices are USD per million tokens; null means variable. */

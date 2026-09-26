@@ -1,22 +1,33 @@
 <script lang="ts">
   import { chat } from "./chat.svelte";
   import { effortName } from "./efforts";
-  import type { Turn } from "./types";
+  import { plural } from "./format";
+  import { PYTHON_TOOL, type Search, type Turn } from "./types";
 
   let { turn }: { turn: Turn } = $props();
 
-  const excerpts = $derived(turn.searches.reduce((sum, s) => sum + s.count, 0));
-  const running = $derived(turn.searches.some((s) => s.status === "running"));
+  const isPython = (tool: string) => tool === PYTHON_TOOL;
+
+  function statusText(s: Search): string {
+    if (s.status === "running") return isPython(s.tool) ? "running" : "searching";
+    if (s.status === "error") return "failed";
+    return isPython(s.tool) ? "ran" : String(s.count);
+  }
+  const searches = $derived(turn.searches.filter((s) => !isPython(s.tool)));
+  const runs = $derived(turn.searches.length - searches.length);
+  const excerpts = $derived(searches.reduce((sum, s) => sum + s.count, 0));
+  const running = $derived(turn.searches.find((s) => s.status === "running"));
   const label = $derived.by(() => {
     if (turn.status === "streaming") {
-      if (running) return "Searching the corpus";
+      if (running) return isPython(running.tool) ? "Running Python" : "Searching the corpus";
       if (turn.text) return "Writing";
-      if (turn.searches.length) return "Reading the excerpts";
+      if (turn.searches.length) return "Reading the results";
       return turn.reasoning ? "Thinking" : "Reading the question";
     }
-    if (!turn.searches.length) return "Answered without searching the corpus";
-    const n = turn.searches.length;
-    return `${n} ${n === 1 ? "search" : "searches"} · ${excerpts} excerpts`;
+    const parts: string[] = [];
+    if (searches.length) parts.push(`${plural(searches.length, "search", "searches")} · ${excerpts} excerpts`);
+    if (runs) parts.push(plural(runs, "Python run"));
+    return parts.join(" · ") || "Answered without searching the corpus";
   });
 </script>
 
@@ -32,11 +43,13 @@
     <ul class="searches">
       {#each turn.searches as s (s.id)}
         <li class="search {s.status}">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" /></svg>
+          {#if isPython(s.tool)}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 5 3 3-3 3M8 12h5" /></svg>
+          {:else}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" /></svg>
+          {/if}
           <span class="q">{s.query}</span>
-          <span class="n">
-            {#if s.status === "running"}searching{:else if s.status === "error"}failed{:else}{s.count}{/if}
-          </span>
+          <span class="n">{statusText(s)}</span>
         </li>
       {/each}
     </ul>

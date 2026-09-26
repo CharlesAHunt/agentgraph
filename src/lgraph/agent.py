@@ -25,6 +25,8 @@ class TurnContext:
     instructions: str | None = None
     # One of config.REASONING_EFFORTS; None keeps the model's configured effort.
     effort: str | None = None
+    # Conversation id; selects the run_python kernel.
+    session: str | None = None
 
 
 class TurnOptions(AgentMiddleware):

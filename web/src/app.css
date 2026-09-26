@@ -137,6 +137,47 @@ a {
   stroke-width: 1.6;
 }
 
+/* Small outlined buttons (Copy, Try again, Refresh, cell tools); size is set where used. */
+.ghost-button {
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+}
+.ghost-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.ghost-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* "Sources 3 papers", "Notebook 2 cells": a title with a mono count. */
+.section-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.section-heading span {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+/* Display equations scroll sideways rather than widen their container. */
+.math-display {
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.math-display .katex-display {
+  margin: 0;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
