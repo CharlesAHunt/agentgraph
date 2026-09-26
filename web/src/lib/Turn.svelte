@@ -53,7 +53,7 @@
         <Answer text={turn.text} {papers} streaming={turn.status === "streaming"} oncite={cite} />
       {/if}
       {#if papers.length}
-        <Sources {papers} turnId={turn.id} {flash} />
+        <Sources {papers} turnId={turn.id} {flash} live={turn.status === "streaming"} />
       {/if}
       {#if turn.status === "done"}
         <div class="actions">

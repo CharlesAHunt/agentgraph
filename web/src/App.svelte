@@ -28,8 +28,9 @@
   // Follow the stream while the reader is at the bottom; stop if they scroll up to read.
   $effect(() => {
     const last = chat.turns.at(-1);
-    void [chat.turns.length, last?.text.length, last?.searches.length, last?.status, last?.sources.length];
-    if (!stickToBottom) return;
+    void [chat.turns.length, last?.text.length, last?.searches.length, last?.cells.length];
+    // Only while text streams: the finished answer's full source list shouldn't pull the page down.
+    if (!stickToBottom || last?.status !== "streaming") return;
     tick().then(() => window.scrollTo({ top: document.documentElement.scrollHeight }));
   });
 
