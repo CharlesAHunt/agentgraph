@@ -7,14 +7,14 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, ValidationError
 
@@ -72,14 +72,18 @@ async def papers(request: Request) -> dict[str, Any]:
     return {"enabled": True, "papers": [p.to_record() for p in papers]}
 
 
-@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
-async def chat(request: Request, payload: ChatRequest) -> dict[str, Any]:
+def _parse_history(payload: ChatRequest) -> list[BaseMessage]:
     try:
-        history = to_langchain([m.model_dump(exclude_unset=True) for m in payload.messages])
+        return to_langchain([m.model_dump(exclude_unset=True) for m in payload.messages])
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         # Pydantic checks field types; message *semantics* (known roles,
         # well-formed tool_calls, tool_call_id on tool messages) surface here.
         raise HTTPException(status_code=422, detail=f"Invalid message list: {exc}") from exc
+
+
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
+async def chat(request: Request, payload: ChatRequest) -> dict[str, Any]:
+    history = _parse_history(payload)
     try:
         output_state = await request.app.state.agent.ainvoke({"messages": history})
     except Exception as exc:
@@ -96,18 +100,118 @@ async def chat(request: Request, payload: ChatRequest) -> dict[str, Any]:
     }
 
 
+@router.post("/chat/stream")
+async def chat_stream(request: Request, payload: ChatRequest) -> StreamingResponse:
+    """The /chat turn as server-sent events.
+
+    Events: ``reasoning`` and ``token`` (text deltas), ``tool_start`` and
+    ``tool_end`` (each search and its sources), then exactly one of ``done``
+    (the same ``messages`` and ``sources`` /chat returns) or ``error``.
+    """
+    history = _parse_history(payload)
+    return StreamingResponse(
+        stream_turn(request.app.state.agent, history),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def stream_turn(agent: Any, history: list[BaseMessage]) -> AsyncIterator[str]:
+    final: list[BaseMessage] = history
+    try:
+        async for mode, data in agent.astream(
+            {"messages": history}, stream_mode=["messages", "updates", "values"]
+        ):
+            if mode == "messages":
+                chunk, meta = data
+                if meta.get("langgraph_node") != "model" or not isinstance(chunk, AIMessageChunk):
+                    continue
+                reasoning = chunk.additional_kwargs.get("reasoning_content")
+                if isinstance(reasoning, str) and reasoning:
+                    yield _sse("reasoning", {"text": reasoning})
+                if text := _chunk_text(chunk):
+                    yield _sse("token", {"text": text})
+            elif mode == "updates":
+                for event in _update_events(data):
+                    yield event
+            elif mode == "values":
+                final = data["messages"]
+    except Exception as exc:  # noqa: BLE001 - the response has already started
+        upstream = translate(exc)
+        if upstream is None:
+            logger.exception("Streaming chat turn failed")
+            yield _sse("error", {"detail": "Internal error while generating the answer.",
+                                 "status": 500, "upstream_status": None})
+        else:
+            logger.warning("OpenRouter call failed (upstream=%s): %s",
+                           upstream.upstream_status, upstream.message)
+            yield _sse("error", {"detail": upstream.message, "status": upstream.status_code,
+                                 "upstream_status": upstream.upstream_status})
+        return
+
+    new = final[len(history) :]
+    yield _sse("done", {
+        "messages": to_wire(final),
+        "sources": [s.model_dump() for s in collect_sources(new)],
+    })
+
+
+def _update_events(update: Any) -> list[str]:
+    """Tool activity from one ``updates`` item: which searches ran, what they found."""
+    events: list[str] = []
+    for node, delta in (update or {}).items():
+        messages = delta.get("messages", []) if isinstance(delta, dict) else []
+        for msg in messages:
+            if node == "model" and isinstance(msg, AIMessage):
+                for call in msg.tool_calls:
+                    events.append(_sse("tool_start", {
+                        "id": call["id"], "name": call["name"], "args": call["args"],
+                    }))
+            elif node == "tools" and isinstance(msg, ToolMessage):
+                events.append(_sse("tool_end", {
+                    "id": msg.tool_call_id,
+                    "name": msg.name,
+                    "status": msg.status,
+                    "sources": [s.model_dump() for s in _artifact_sources(msg)],
+                }))
+    return events
+
+
+def _chunk_text(chunk: AIMessageChunk) -> str:
+    if isinstance(chunk.content, str):
+        return chunk.content
+    return "".join(
+        block.get("text", "")
+        for block in chunk.content
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    # json.dumps escapes newlines, so a payload can never break SSE framing.
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _artifact_sources(msg: ToolMessage) -> list[Source]:
+    if not isinstance(msg.artifact, list):
+        return []
+    sources: list[Source] = []
+    for item in msg.artifact:
+        try:
+            sources.append(Source.model_validate(item))
+        except ValidationError:
+            continue
+    return sources
+
+
 def collect_sources(messages: Sequence[BaseMessage]) -> list[Source]:
     """Gather ``Source`` artifacts from tool messages, deduplicated by chunk."""
     seen: set[str] = set()
     sources: list[Source] = []
     for msg in messages:
-        if not isinstance(msg, ToolMessage) or not isinstance(msg.artifact, list):
+        if not isinstance(msg, ToolMessage):
             continue
-        for item in msg.artifact:
-            try:
-                source = Source.model_validate(item)
-            except ValidationError:
-                continue
+        for source in _artifact_sources(msg):
             if source.chunk_id in seen:
                 continue
             seen.add(source.chunk_id)
@@ -169,5 +273,9 @@ def create_app(
 
     resolved.results_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/results", StaticFiles(directory=str(resolved.results_dir), html=True), name="results")
+
+    # Mounted last: "/" matches everything, so API routes must be registered first.
+    if resolved.web_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(resolved.web_dir), html=True), name="web")
 
     return app

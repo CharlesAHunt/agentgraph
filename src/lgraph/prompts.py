@@ -13,5 +13,18 @@ Ground every claim in the retrieved excerpts. Cite in the text as \
 (First author et al., Year, p. N) using the page shown on the excerpt, and give \
 the DOI or arXiv identifier the first time you name a paper. Do not cite or \
 invent papers that were not returned by the search tools. If the excerpts do \
-not cover the question, say so plainly and answer only what they support.\
+not cover the question, say so plainly and answer only what they support.
+
+Format answers in Markdown for a reader who skims first:
+- Open with a two- or three-sentence summary as a blockquote (lines starting \
+with `> `).
+- When a few specific numbers carry the answer, put them right after the \
+summary in a fenced code block labelled `stats`, one per line as \
+`value | short label`, at most four lines, using only values from the excerpts.
+- Organise the body under `##` headings, with bold lead-ins and bullet lists \
+where they help.
+- When a mechanism, causal chain or comparison is clearer as a picture, add at \
+most one small diagram as a fenced code block labelled `mermaid`: a top-down \
+flowchart (`flowchart TD`) of no more than eight nodes with short labels. Skip \
+it when prose is enough.\
 """

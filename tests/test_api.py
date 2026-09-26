@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -15,7 +16,14 @@ from lgraph.config import Settings
 from lgraph.prompts import DEFAULT_RAG_SYSTEM_PROMPT
 from lgraph.rag.store import PaperStore
 
-from .conftest import FakeEmbeddings, RaisingChatModel, fake_model, make_chunks, make_paper
+from .conftest import (
+    FakeEmbeddings,
+    RaisingChatModel,
+    fake_model,
+    make_chunks,
+    make_paper,
+    streaming_model,
+)
 
 REASONING = [{"type": "reasoning.text", "text": "t", "format": "unknown"}]
 
@@ -308,3 +316,108 @@ def test_results_endpoint_creates_directory_when_absent(tmp_path: Path) -> None:
     with _client(settings, fake_model()):
         pass
     assert (tmp_path / "results").is_dir()
+
+
+# --- /chat/stream ------------------------------------------------------------
+
+
+def _events(body: str) -> list[tuple[str, dict]]:
+    events = []
+    for frame in body.strip().split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in frame.splitlines())
+        events.append((fields["event"], json.loads(fields["data"])))
+    return events
+
+
+def _stream(settings: Settings, model, messages: list[dict], tools=()) -> list[tuple[str, dict]]:
+    with _client(settings, model, tools) as c:
+        r = c.post("/chat/stream", json={"messages": messages})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    return _events(r.text)
+
+
+def test_stream_emits_tokens_then_done_matching_chat(settings: Settings) -> None:
+    events = _stream(settings, streaming_model("hello streaming world"),
+                     [{"role": "user", "content": "hi"}])
+
+    tokens = "".join(d["text"] for e, d in events if e == "token")
+    assert tokens == "hello streaming world"
+    name, done = events[-1]
+    assert name == "done"
+    assert done == {
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello streaming world"},
+        ],
+        "sources": [],
+    }
+
+
+def test_stream_reports_tool_activity_and_sources(settings: Settings) -> None:
+    model = streaming_model(
+        AIMessage(content="", tool_calls=[_tool_call("lookup", {"query": "attention"}, "call-1")]),
+        AIMessage(content="Multi-head attention (Vaswani et al., 2017, p. 4)"),
+    )
+    events = _stream(settings, model, [{"role": "user", "content": "explain attention"}], tools=[lookup])
+    names = [e for e, _ in events]
+
+    start = next(d for e, d in events if e == "tool_start")
+    assert start == {"id": "call-1", "name": "lookup", "args": {"query": "attention"}}
+    end = next(d for e, d in events if e == "tool_end")
+    assert end["id"] == "call-1" and end["status"] == "success"
+    assert [s["chunk_id"] for s in end["sources"]] == ["arxiv:1706.03762#0003", "arxiv:1706.03762#0004"]
+    assert names.index("tool_start") < names.index("tool_end") < names.index("token")
+    assert "".join(d["text"] for e, d in events if e == "token").startswith("Multi-head attention")
+
+    done = events[-1][1]
+    assert [m["role"] for m in done["messages"]] == ["user", "assistant", "tool", "assistant"]
+    assert [s["n"] for s in done["sources"]] == [1, 2]
+
+
+def test_stream_forwards_reasoning_text(settings: Settings) -> None:
+    reply = AIMessage(content="ok", additional_kwargs={"reasoning_content": "thinking it over"})
+    events = _stream(settings, streaming_model(reply), [{"role": "user", "content": "hi"}])
+    assert [d["text"] for e, d in events if e == "reasoning"] == ["thinking it over"]
+
+
+def test_stream_upstream_failure_becomes_error_event(settings: Settings) -> None:
+    events = _stream(settings, RaisingChatModel(error=httpx.ReadTimeout("slow")),
+                     [{"role": "user", "content": "hi"}])
+    name, data = events[-1]
+    assert name == "error"
+    assert data["status"] == 504 and data["upstream_status"] is None
+    assert "done" not in [e for e, _ in events]
+
+
+def test_stream_hides_unexpected_error_details(settings: Settings) -> None:
+    events = _stream(settings, RaisingChatModel(error=RuntimeError("secret internals")),
+                     [{"role": "user", "content": "hi"}])
+    name, data = events[-1]
+    assert name == "error" and data["status"] == 500
+    assert "secret" not in data["detail"]
+
+
+def test_stream_rejects_malformed_messages(settings: Settings) -> None:
+    with _client(settings, streaming_model()) as c:
+        r = c.post("/chat/stream", json={"messages": [{"role": "bogus", "content": "x"}]})
+    assert r.status_code == 422
+
+
+# --- frontend ----------------------------------------------------------------
+
+
+def test_built_frontend_is_served_at_root_without_shadowing_api(tmp_path: Path) -> None:
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "index.html").write_text("<div id=app></div>")
+    settings = Settings(api_key="k", model="test/model", data_dir=tmp_path, web_dir=web)
+    with _client(settings, fake_model()) as c:
+        assert "<div id=app>" in c.get("/").text
+        assert c.get("/health").json()["status"] == "ok"
+
+
+def test_no_frontend_mount_without_a_build(tmp_path: Path) -> None:
+    settings = Settings(api_key="k", model="test/model", data_dir=tmp_path, web_dir=tmp_path / "none")
+    with _client(settings, fake_model()) as c:
+        assert c.get("/").status_code == 404

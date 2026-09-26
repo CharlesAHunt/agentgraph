@@ -81,6 +81,7 @@ precedence). `.env` is gitignored.
 | `LGRAPH_CONTACT_EMAIL` | unset | Required to ingest DOIs (Crossref polite pool and Unpaywall ask for it) |
 | `LGRAPH_MINERU_TIER` | `flash` | `flash` reads the PDF text layer with no model download; `standard` and `advanced` add layout models and OCR |
 | `LGRAPH_MINERU_API_URL` | unset | Use a self-hosted `mineru-kit api-server` instead of parsing locally |
+| `LGRAPH_WEB_DIR` | `web/dist` | Built web UI, served at `/` when the directory exists |
 
 ## Build a corpus
 
@@ -276,6 +277,51 @@ through) or `502` (anything else), with body
 fails mid-turn, the tool tells the model the corpus is unavailable and the
 request still succeeds.
 
+### Streaming
+
+`POST /chat/stream` takes the same body and streams the turn as server-sent
+events. Each frame is `event: <name>` plus one JSON `data:` line:
+
+| Event | Data | When |
+|---|---|---|
+| `reasoning` | `{"text"}` | model thinking, as it arrives |
+| `token` | `{"text"}` | answer text, as it arrives |
+| `tool_start` | `{"id", "name", "args"}` | the model starts a search |
+| `tool_end` | `{"id", "name", "status", "sources"}` | that search returned |
+| `done` | `{"messages", "sources"}` | same payload as `/chat`; send `messages` back next turn |
+| `error` | `{"detail", "status", "upstream_status"}` | the turn failed; no `done` follows |
+
+```bash
+curl -N localhost:8000/chat/stream -H 'content-type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What limits divertor heat flux?"}]}'
+```
+
+## Web interface
+
+A Svelte chat UI lives in `web/`. It streams answers from `/chat/stream`,
+shows each corpus search live, renders the answer as a brief (summary
+callout, key-figure tiles, mermaid diagrams), and turns citations into
+chips that jump to a numbered source list with arXiv/DOI links.
+
+Build it once and `uv run lgraph` serves it at `/` alongside the API:
+
+```bash
+cd web && npm install && npm run build   # writes web/dist
+cd .. && uv run lgraph                   # open http://127.0.0.1:8000
+```
+
+For frontend development, run the API and Vite side by side; Vite proxies
+API calls to port 8000 (override with `LGRAPH_API=http://host:port`):
+
+```bash
+uv run lgraph            # terminal 1
+cd web && npm run dev    # terminal 2, open http://localhost:5173
+```
+
+Model output is untrusted (a retrieved paper could contain injected HTML),
+so the UI sanitizes rendered Markdown with DOMPurify and renders diagrams
+with mermaid's `strict` security level.
+
 ## Test
 
 ```bash
@@ -296,7 +342,7 @@ src/lgraph/
   prompts.py        default citation-oriented system prompt
   messages.py       wire dict <-> LangChain message conversion
   errors.py         UpstreamError and exception -> status translation
-  api.py            FastAPI app: /health, /papers, /chat, /results (static)
+  api.py            FastAPI app: /health, /papers, /chat, /chat/stream, /results, web UI
   __main__.py       CLI: serve (default), discover, ingest, papers
   rag/
     documents.py    Paper, Chunk, Hit, Source
@@ -309,6 +355,12 @@ src/lgraph/
     parse.py        Parser protocol, MinerU adapter
     chunk.py        section-aware chunking
     ingest.py       the pipeline, preflight check, early stop
+web/                Svelte 5 + Vite chat UI (npm run build -> web/dist)
+  src/lib/
+    api.ts          /chat/stream client (SSE over fetch), /papers
+    chat.svelte.ts  conversation state: turns, searches, history round-trip
+    markdown.ts     marked -> DOMPurify -> citation chips, stats and mermaid blocks
+    Answer.svelte   the rendered brief; Sources.svelte, Activity.svelte, Composer.svelte
 ```
 
 Nothing under `rag/` imports FastAPI, and only `rag/parse.py` imports

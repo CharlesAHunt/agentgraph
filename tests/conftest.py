@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -9,8 +12,8 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
 from lgraph.config import Settings
 from lgraph.rag.documents import Chunk, Paper, chunk_id
@@ -84,6 +87,40 @@ class RaisingChatModel(BaseChatModel):
 def fake_model(*replies: AIMessage | str) -> RecordingFakeChatModel:
     """Build a recording fake that returns ``replies`` in order."""
     return RecordingFakeChatModel(messages=iter(replies), calls=[])
+
+
+class StreamingFakeChatModel(RecordingFakeChatModel):
+    """Recording fake whose streaming path keeps tool calls and reasoning.
+
+    ``GenericFakeChatModel._stream`` drops ``tool_calls``, so under
+    LangGraph's ``messages`` stream mode a scripted tool call would vanish.
+    """
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        reply = self._generate(messages, stop=stop, **kwargs).generations[0].message
+        assert isinstance(reply, AIMessage)
+        chunks: list[AIMessageChunk] = []
+        if reasoning := reply.additional_kwargs.get("reasoning_content"):
+            chunks.append(AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
+        if isinstance(reply.content, str) and reply.content:
+            chunks += [AIMessageChunk(content=t) for t in re.split(r"(\s)", reply.content) if t]
+        for i, call in enumerate(reply.tool_calls):
+            chunks.append(AIMessageChunk(content="", tool_call_chunks=[{
+                "name": call["name"], "args": json.dumps(call["args"]), "id": call["id"],
+                "index": i, "type": "tool_call_chunk",
+            }]))
+        for chunk in chunks or [AIMessageChunk(content="")]:
+            yield ChatGenerationChunk(message=chunk)
+
+
+def streaming_model(*replies: AIMessage | str) -> StreamingFakeChatModel:
+    return StreamingFakeChatModel(messages=iter(replies), calls=[])
 
 
 

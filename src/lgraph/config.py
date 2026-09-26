@@ -26,6 +26,7 @@ DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
 DEFAULT_EMBEDDING_DIMENSIONS = 1536
 DEFAULT_RETRIEVAL_K = 6
 DEFAULT_MINERU_TIER = "flash"
+DEFAULT_WEB_DIR = Path("web/dist")
 
 # OpenRouter's unified reasoning levels. "none" turns reasoning off.
 REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
@@ -62,6 +63,8 @@ class Settings:
     mineru_tier: str = DEFAULT_MINERU_TIER
     # When set, parsing is delegated to a self-hosted MinerU API server.
     mineru_api_url: str | None = None
+    # Built frontend (`npm run build` in web/). Served at / when it exists.
+    web_dir: Path = DEFAULT_WEB_DIR
 
     def __post_init__(self) -> None:
         if self.reasoning_effort not in REASONING_EFFORTS:
@@ -131,6 +134,7 @@ class Settings:
             contact_email=os.environ.get("LGRAPH_CONTACT_EMAIL") or None,
             mineru_tier=os.environ.get("LGRAPH_MINERU_TIER", DEFAULT_MINERU_TIER),
             mineru_api_url=os.environ.get("LGRAPH_MINERU_API_URL") or None,
+            web_dir=Path(os.environ.get("LGRAPH_WEB_DIR") or DEFAULT_WEB_DIR),
         )
 
     def __repr__(self) -> str:
